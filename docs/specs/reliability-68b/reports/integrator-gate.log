@@ -1,0 +1,712 @@
+fatal: ambiguous argument 'not-a-real-ref..0123456': unknown revision or path not in the working tree.
+Use '--' to separate paths from revisions, like this:
+'git <command> [<revision>...] -- [<file>...]'
+✔ parseRecordText: reads the fixture record's fields and both accepted Log: entries (6.1782ms)
+✔ parseRecordText: a record missing a field simply omits its key, never throws (0.2157ms)
+✔ parseRecordText: reads Artifact-repo: like any other singleton field (0.0927ms)
+✔ computeTopTierTokens: no census -> unavailable (0.152ms)
+✔ computeTopTierTokens: a census with no combined by-model sums is unavailable, never a silent 0 (BLOCKER 1(b)) (0.0902ms)
+✔ computeTopTierTokens: a census window that starts after this build's accepted time is rejected as not this build's window (BLOCKER 1(b)) (0.0734ms)
+✔ computeTopTierTokens: a census window starting well before Opened: (a whole-session census) is rejected even with no accepted time known (BLOCKER 1(b)) (0.1222ms)
+✔ computeTopTierTokens: a census window inside the build window (within tolerance) is trusted (0.2932ms)
+✔ computeTopTierTokens: a census with no lead.windowStartAt at all is unavailable, not silently trusted (MAJOR 1) (0.0724ms)
+✔ computeTopTierTokens: census present, no spec-census, Spec-session/Spec-from present in the record -> partial with the "not run" reason (0.1991ms)
+✔ computeTopTierTokens: Spec-session/Spec-from missing from the record names that reason instead (0.1455ms)
+✔ computeTopTierTokens: a placeholder Spec-session:/Spec-from: (unavailable) gets the "missing from record" reason, not "not run" (MINOR 3, seam) (0.0934ms)
+✔ computeTopTierTokens: no top-tier model matched is named, not silently zero (0.0801ms)
+✔ computeTopTierTokens: a spec-census over Spec-session:'s Spec-from:..Opened: combines the build slice and the spec slice into one total (0.1705ms)
+✔ computeTopTierTokens: a spec-census that is not Spec-session:'s Spec-from:..Opened: window is never summed (r1 BLOCKER 1 twin) (0.1766ms)
+✔ computeTopTierTokens: each mixed-host build and spec slice uses its own default top-tier policy (0.6928ms)
+✔ computeTopTierTokens: a Codex spec slice requires a usable matching Spec-session identity for either build host (1.0021ms)
+✔ computeTopTierTokens: DELEGATION_TOP_TIER overrides the configured default tier list (0.1666ms)
+✔ computeTopTierTokens: a complete Codex census counts Astra under the configured default top tier (0.192ms)
+✔ computeTopTierTokens: an incomplete Codex census is unavailable with C1 evidence, never a confident zero (0.0456ms)
+✔ computeTopTierTokens: a Codex model total uses derived_total_tokens when an optional breakdown field is unavailable (0.0533ms)
+✔ computeTopTierTokens: unknown or blank Codex aggregate model attribution is unavailable, never a verified zero (0.0555ms)
+✔ computeTopTierTokens: a census window ending after the last acceptance (plus tolerance) is rejected — it would mix in the next build (MAJOR 1) (0.0359ms)
+✔ computeTopTierTokens: a census with no lead.windowEndAt at all is unavailable, not a silent "0 messages" companion (MAJOR 3, r3) (0.0436ms)
+✔ scanTimestamps: returns null for a missing file, never throws (0.221ms)
+✔ scanTimestamps: the fixture lead session yields 4 sorted timestamps (5.7119ms)
+✔ scanTimestamps: malformed JSON lines and lines with no timestamp are skipped, not thrown (5.1952ms)
+✔ computeHoursAskToAccepted: no Opened: -> unavailable (0.1352ms)
+✔ computeHoursAskToAccepted: no accepted Log: entry -> unavailable (0.0487ms)
+✔ computeHoursAskToAccepted: unparseable accepted timestamp -> unavailable (0.0469ms)
+✔ computeHoursAskToAccepted: null leadTimestamps -> the hours print with an explicit "no lead transcript" gap reason (0.0502ms)
+✔ computeHoursAskToAccepted: leadGapReason is printed instead of the generic "no lead transcript" reason (MAJOR 1) (0.0363ms)
+✔ computeHoursAskToAccepted: fewer than 2 messages in the window -> gap unavailable, hours still print (0.0704ms)
+✔ computeHoursAskToAccepted: the first Log: entry being the first accepted -> unavailable, not a confident 0.0h (MAJOR 4) (0.0334ms)
+✔ computeHoursAskToAccepted: on the fixture record + lead session, prints 24.0h and the 45min gap (0.3964ms)
+✔ computeReworkAfterAcceptance: no Base:/accepted sha/--git -> unavailable (no range), with the known re-accept count carried alongside (MINOR 1) (0.1425ms)
+✔ computeReworkAfterAcceptance: counts only commits touching build files within 7 days, excludes release commits and commits outside the pathspec, and reports re-accept Log: entries (461.3013ms)
+✔ computeReworkAfterAcceptance: excludes this repo's real release subject forms, not just "release: ..." (MAJOR 2) (351.7915ms)
+✔ computeReworkAfterAcceptance: the Artifact: fallback is only used with a single accepted entry — a re-accept without an artifact note gives unavailable, never the wrong (last) sha (MINOR 9) (124.2638ms)
+✔ computeReworkAfterAcceptance: base == accepted (no changed files) -> unavailable (no range) (144.1405ms)
+✔ computeReworkAfterAcceptance: an unresolvable git ref fails closed as unavailable, not a thrown error (150.2835ms)
+✔ main: Artifact-repo: redirects number 3 (rework after acceptance) to that repository, never falling back to a --git that cannot resolve the range (381.1735ms)
+✔ main: a relative Artifact-repo: never resolves against process.cwd() - number 3 renders unavailable (no range) (127.7818ms)
+✔ collectLedgerEntries: returns null for a missing directory (0.245ms)
+✔ collectLedgerEntries: parses the fixture ledger day into ASK/ACK/RESULT entries with kind, to, id, re and ms (13.8475ms)
+✔ collectLedgerEntries: NYC timestamps resolve to the correct EST/EDT offset across the year, non-NYC tz gives ms null (MINOR 5) (2.0406ms)
+✔ computeWorkLostOrStalled: no Opened:/accepted window -> unavailable (0.0658ms)
+✔ computeWorkLostOrStalled: no --lead-slug -> ASKs part is explicitly unavailable, gaps part still computes (0.1404ms)
+✔ computeWorkLostOrStalled: a slug that never appears in the ledger reads unavailable, not a confident 0 (MAJOR 3) (0.5663ms)
+✔ computeWorkLostOrStalled: fewer than 2 in-window lead messages -> gaps unavailable, never a confident "0 gaps" (R1 r1 BLOCKER 2, pinned against reversion in r2) (0.069ms)
+✔ computeWorkLostOrStalled: on the fixture record + lead session + ledger, one gap over 30min and one unanswered ASK (0.8095ms)
+✔ mergeSpans: merges overlapping/adjacent intervals, leaves disjoint ones apart (0.1158ms)
+✔ splitGapByUnion: a gap entirely outside the union is one stalled piece (0.0436ms)
+✔ splitGapByUnion: a gap entirely inside one span is all waiting-on-agents, no stalled piece (0.0351ms)
+✔ splitGapByUnion: nested/overlapping spans in the union never double-count a gap piece (0.0387ms)
+✔ computeWorkLostOrStalled: a 2-minute lead turn between two adjacent Agent calls splits one big window into two separately-judged gaps (0.0979ms)
+✔ buildAgentSpans: Agent/Task use their own tool_result; a missing result falls back to the window end (0.2822ms)
+✔ buildAgentSpans: a Workflow tool_use ignores its own quick tool_result — its span runs to the first later TaskStop, else the window end (R6 deviation, see code comment) (0.1678ms)
+✔ buildAgentSpans/computeWorkLostOrStalled: a Workflow span is bounded by its spawned agents' last activity, so a long lead silence AFTER they finish still reads as stalled (MAJOR-1) (2.427ms)
+✔ buildAgentSpans/computeWorkLostOrStalled: an agent hung on a pending tool_use is still active until its R7 end bound, so the hang counts once, not twice (MAJOR-A, Workflow) (2.4762ms)
+✔ buildAgentSpans/computeWorkLostOrStalled: an agent hung on a pending tool_use is still active until its R7 end bound, so the hang counts once, not twice (MAJOR-A, direct Agent) (1.7772ms)
+✔ buildAgentSpans: a Workflow relaunch reusing the same runId bounds each launch by the agent files it started, not the whole run directory (MAJOR-B) (2.9089ms)
+✔ buildAgentSpans: the no-runId heuristic run match takes the max of every candidate run's last activity, not just the first found (MINOR-C) (3.3763ms)
+✔ buildAgentSpans: no-runId heuristic — a staged agent that starts after a parallel Workflow launch still sits inside the union (F2-review-round3 MINOR-1) (3.8598ms)
+✔ scanSubagentFile: an internal gap over 30min between consecutive timestamps is reported; a tool_use tail with a later tool_result is not tail-pending (1.2211ms)
+✔ scanSubagentFile: a killed agent (last record is a tool_use with no later tool_result) is tail-pending (1.0663ms)
+✔ scanSubagentFile: a timestamp with no Z or offset (local time) rejects the whole file, never guessed (1.2281ms)
+✔ scanSubagentFile: an unparseable timestamp also rejects the whole file (1.1469ms)
+✔ scanSubagentFile: a file with one timestamp has no internal gap and (with no trailing tool_use) no tail stall (1.2512ms)
+✔ collectSubagentStalls: an out-of-window file is skipped (R7 Scope); an in-window internal gap over 30min counts once (6.4377ms)
+✔ collectSubagentStalls: an unreadable subagent file is named, never silently skipped or guessed (1.7097ms)
+✔ collectSubagentStalls: a killed direct subagent (tail tool_use, no later result) is judged against the window end (1.6426ms)
+✔ collectSubagentStalls: a Workflow agent stuck on a tool with no TaskStop is a stall bounded by a LATER Workflow result, not the launch ack (MAJOR-2, one timestamp) (2.0152ms)
+✔ collectSubagentStalls: a Workflow agent stuck on a tool with no TaskStop is a stall bounded by a LATER Workflow result, not the launch ack (MAJOR-2, several timestamps) (1.9054ms)
+✔ collectSubagentStalls: a direct subagent named by the lead's record-level toolUseResult.agentId is judged against that LATER result, not the window end (MAJOR-3) (1.5758ms)
+✔ buildAgentSpans: an Agent tool_use's span is bounded by the agent file its own toolUseResult.agentId names (MINOR-E-a) (5.6344ms)
+✔ buildAgentSpans: a Workflow ack's toolUseResult.runId picks its own run directory over a decoy with an earlier-fitting candidate (MINOR-E-b) (2.6158ms)
+✔ collectSubagentStalls: a Workflow agent's tail bound picks the NEAREST preceding Workflow's later result, never a farther one or one launched after the file ends (MINOR-E-c) (2.9044ms)
+✔ collectSubagentStalls: a direct subagent's end-bound match requires a result strictly LATER than the file's own end, never the earlier launch ack (MINOR-E-d) (1.785ms)
+✔ computeWorkLostOrStalled: fewer than 2 lead messages in window still surfaces agent stalls, never drops them (MINOR-1) (0.0898ms)
+✔ buildFourRead: a lead with Agent/Task/Workflow tool_uses but no subagents/ directory says so, not a silent zero (MINOR-2) (11.8882ms)
+✔ collectSubagentStalls: tail silence is clipped to the window, never measured past it (MINOR-3) (2.2585ms)
+✔ buildFourRead: lane10's real session gives exactly one agent stall (216.8min), 0 lead-stalled, 0 waiting-on-agents (77.0211ms)
+✔ buildFourRead: lane16's real session gives 0 stalled, 1 waiting-on-agents (41.8min), no agent stalls (104.7708ms)
+✔ buildFourRead: the fixture record + a real census over the fixture lead session produces all four numbers and both companions (4.7474ms)
+✔ buildFourRead: a record with no Lead-session: falls back to --lead-session on the command line, and says so (2.3733ms)
+✔ buildFourRead: a complete Codex census uses lead.sessionId instead of its rollout basename and reports native response gaps/messages (57.335ms)
+✔ buildFourRead: native lead counts require a valid record/census build window even when token coverage is partial (35.3205ms)
+✔ buildFourRead: a Codex census requires a nonempty requested Lead-session identity (14.6958ms)
+✔ buildFourRead: a record opened at acceptance (MAJOR 4) still rejects a whole-session census by its real accepted time, not a silently-trusted one (BLOCKER 1(b)) (10.4155ms)
+✔ buildFourRead: a record opened at acceptance makes Number 1 refuse with Number 2, even against a census that fits the window (MAJOR 1, r3) (4.2262ms)
+✔ buildFourRead: a record with no Opened: makes Number 1 and its companion both unavailable, never a confident count (BLOCKER 1) (3.8574ms)
+✔ buildFourRead: a Lead-session: that does not match the census's own lead file gives a named mismatch reason on Numbers 2 and 4, not a silently-wrong transcript (MAJOR 1, pinned against reversion in r2) (3.5212ms)
+✔ buildFourRead: a census with no lead.windowEndAt is unavailable, never a confident "0 messages" companion (MAJOR 3, r3) (10.69ms)
+✔ buildFourRead: the companion counts over the census window, and the end check uses the LAST accepted (r2 MAJOR 1, pinned in r3) (3.5579ms)
+✔ buildFourRead: --accept-at gives real values at accept time instead of unavailable (MAJOR 2, seam) (4.3905ms)
+✔ buildFourRead: an unparseable last accepted Log: timestamp falls back to the first accepted (tighter) bound for the census end check, not a silently-skipped one (MAJOR 3, r3) (10.2411ms)
+✔ buildFourRead: passes the last acceptance into the census end check (r2 MAJOR 1, pinned in r3) (5.1349ms)
+✔ formatJson: deterministic, sorted keys, over the fixture build (5.1996ms)
+✔ formatMarkdown: prints a "| number | value |" table with all four labels, plus a Companions table (3.9705ms)
+✔ formatJson/formatMarkdown: pin exact golden content for the fixture build, not just self-equality (MINOR 6) (4.0038ms)
+✔ parseArgs: --record and --census are required (0.5015ms)
+✔ parseArgs: an unknown flag throws, and a trailing flag with no value throws (0.1022ms)
+✔ parseArgs: every optional flag is captured (0.0663ms)
+✔ main: --out and --json write files; stdout gets only "wrote:" lines (10.5881ms)
+✔ main: without --out/--json, the full markdown report goes to the write() sink (5.3604ms)
+✔ isBuildCensusJsonShape: a real build-census --json report is the shape (2.9823ms)
+✔ isBuildCensusJsonShape: the census markdown, plain objects, arrays and null are not the shape (0.1955ms)
+✔ validateCensusArg: the census markdown fails JSON.parse and is refused with the F1 message (5.4045ms)
+✔ validateCensusArg: JSON with the wrong top-level shape is refused with the F1 message (1.8341ms)
+✔ validateCensusArg: a missing file is refused loudly, not silently accepted (0.5912ms)
+✔ validateCensusArg: a real build-census --json file passes (3.0378ms)
+✔ main: --census pointed at the census markdown refuses with exit 2 and writes no output file, before this fix it silently exited 0 (0.7784ms)
+✔ main: --census pointed at a real build-census --json file still passes (F3: JSON input keeps working) (3.0532ms)
+✔ validateCensusArg: a pre-lane-38 build-census JSON (no stallNudges) still passes (9.9978ms)
+✔ main: --spec-census pointed at the census markdown refuses with exit 2, mirroring --census (3.1676ms)
+✔ lane 68: an owned-record gap with no open ASK to a peer reads "pane silent <min> min from <ISO>", the stalled integer unchanged, no "waiting on a peer" (2.708ms)
+✔ lane 68: an unanswered ASK from the lead to a peer at the gap start makes it "waiting on a peer", not pane silent (6.1021ms)
+✔ lane 68: an ASK answered before the gap start no longer counts; one answered after it still does (4.5086ms)
+✔ lane 68: an ASK older than the build window does not make a gap "waiting on a peer" (3.3515ms)
+✔ lane 68: a gap while the record is not owned keeps today's wording, byte for byte (2.0653ms)
+✔ lane 68: a gap inside an Agent span is waiting-on-agents, never pane silent (1.9006ms)
+✔ lane 68: Status or the ledger unavailable reads "stall attribution unavailable (<reason>)", never a silent zero (2.0167ms)
+✔ lane 68: a Codex native response-gap heuristic is not attributed (0.1542ms)
+✔ lane 68: buildFourRead on a record that is owned across the fixture 45 min gap names it "pane silent", and the leading integer is unchanged (4.9807ms)
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'target.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'target.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tracked.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'later.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+work-record: WARN strict-exempt: Opened before 2026-09-27T08:32:15Z; Spec-session/Spec-from/model rules are warnings for this record
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'feat.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'main-only.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'later.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'feat.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'main-only.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'unrelated.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'later.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+work-record: WARN strict-exempt: Opened before 2026-09-27T08:32:15Z; Spec-session/Spec-from/model rules are warnings for this record
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+✔ parseRecord parses a complete example record (2.8114ms)
+✔ parseRecord trims \r from CRLF input (0.4914ms)
+✔ 'none' evidence parses to an empty array (0.1001ms)
+✔ an unknown header label is collected in errors (0.1204ms)
+✔ listRecords reads only *.record.md files in a directory, sorted (2.9135ms)
+✔ listRecords returns [] for a missing directory (0.1734ms)
+✔ formatLogLine with and without a note (0.0861ms)
+✔ STATUSES includes rejected, closed, and withdrawn (0.0564ms)
+✔ formatLogLine omits the trailing space and never emits the word undefined when note is absent (A4) (0.0865ms)
+✔ validateRecord: a clean record with no repoRoot given produces zero findings (0.5789ms)
+✔ FINDING_CODES is exactly L-C6's thirteen codes plus T1's accepted-without-check plus C1's scratch-missing/scratch-invalid plus lane 60b's artifact-repo-not-absolute (seventeen total) (0.0738ms)
+✔ validateRecord: missing-field fires once per absent required field (0.1705ms)
+✔ checkScratchField: refuses scratch-missing only when Spec-from is parseable and on/after scratchFrom (0.2176ms)
+✔ checkScratchField: a record with no Scratch: line gets a warning only, never a refusal, when Spec-from is before scratchFrom, absent, or unparseable (0.1888ms)
+✔ checkScratchField: a Scratch: value that is not absolute is refused (scratch-invalid) at any date, before or after scratchFrom (0.1377ms)
+✔ checkScratchField: an absolute Scratch: value never refuses or warns, regardless of Spec-from/scratchFrom (0.1182ms)
+✔ checkScratchField: a Windows-shaped absolute Scratch: value (C:\...) never refuses or warns on any host (0.1011ms)
+✔ checkScratchField uses the real SCRATCH_FROM export by default, when opts.scratchFrom is not given (0.1434ms)
+✔ validateRecord: scratch-missing is a finding-level refusal when Spec-from is on/after opts.scratchFrom, an info-level warning otherwise (0.1839ms)
+✔ validateRecord: scratch-invalid is a finding-level refusal (0.1011ms)
+✔ validateRecord: artifact-repo-not-absolute fires (finding-level) for a relative Artifact-repo:, and is silent when it is absolute or absent (0.2443ms)
+✔ checkAcceptance/acceptRecord: refuse with code scratch-missing when Spec-from is on/after opts.scratchFrom and there is no Scratch: line (103.7084ms)
+✔ checkAcceptance/acceptRecord: refuse with code scratch-invalid when Scratch: is not an absolute path, regardless of Spec-from (102.6222ms)
+✔ checkAcceptance: a record with no Scratch: line and Spec-from before opts.scratchFrom is not refused, and carries the scratch-missing warning (203.4249ms)
+✔ lane 67: Workflow: and Measure: in the header parse as known fields (no unknown-label error), and a record carrying both passes the strict shape check inside checkAcceptance (173.8693ms)
+✔ lane 67: WORKFLOW_FROM is the pinned cutoff 2026-10-01T00:00:00Z (0.0617ms)
+✔ checkAcceptance: refuse with code workflow-missing when Spec-from is on/after opts.workflowFrom and there is no Workflow: line (178.6125ms)
+✔ acceptRecord: a record with no Workflow: line and a current Spec-from is refused by accept itself (workflow-missing), Status unchanged (104.2365ms)
+✔ checkAcceptance: a record with no Workflow: line and Spec-from before workflowFrom is not refused, and carries the workflow-missing warning (179.489ms)
+✔ checkAcceptance: Workflow: none, <reason> and Workflow: <run id> both pass; a bare `none` is workflow-invalid (483.2074ms)
+✔ validateRecord: bad-status fires on a status outside STATUSES (0.1718ms)
+✔ validateRecord: bad-work-id fires on an uppercase or malformed Work id (0.1861ms)
+✔ validateRecord: accepted-without-artifact fires when Status: accepted and Artifact: none (20.6756ms)
+✔ validateRecord: without repoRoot, every evidence-path check is skipped (A4) (0.2428ms)
+✔ validateRecord: accepted with an in-repo evidence path is clean without repoRoot (A4) (0.1286ms)
+✔ validateRecord: evidence-missing fires for an in-repo path that does not exist (0.8256ms)
+✔ validateRecord: evidence-no-verdict fires when the file's first line does not start VERDICT: (1.8124ms)
+✔ validateRecord: a well-formed in-repo evidence file with a VERDICT: first line has no evidence findings (1.922ms)
+✔ validateRecord: evidence-unreachable is an info row, never a finding, for a path outside repoRoot (1.2342ms)
+✔ validateRecord: old worker finishes after replacement -> stale-result-candidate (0.2323ms)
+✔ validateRecord: stale-result-candidate does not fire when no artifact note exists yet (0.1045ms)
+✔ validateRecord: stale-result-candidate does not fire when Artifact: is none (0.0948ms)
+✔ validateRecord: a later Log line with the SAME owner is not an owner change (A4) (0.1007ms)
+✔ validateRecord: effect landed but result lost -> accepted is refused (accepted-without-evidence) (0.0986ms)
+✔ validateRecord: accepted-without-check fires when Status: accepted, Opened: is on/after the cutoff, and there is no Log: accepted ... artifact <40-hex> line (a hand-flipped Status:) (0.2738ms)
+✔ validateRecord: accepted-without-check does not fire once acceptRecord's own Log: shape is present, naming the same artifact (0.8251ms)
+✔ validateRecord: accepted-without-check fires when a hand-edited record copies a matching Log: accepted line but carries no Census: line at all (0.3223ms)
+✔ validateRecord: the census-required check does not fire when a Census: line (even a skipped one) is present (0.3205ms)
+✔ validateRecord: the census-required check is grandfathered for a record opened before CENSUS_REQUIRED_CUTOFF, even with no Census: line (0.2752ms)
+✔ validateRecord: accepted-without-check does not fire for a record opened before the cutoff (grandfathered) (0.2706ms)
+✔ validateRecord: still fires when the only Log: accepted line names a DIFFERENT artifact (a stale acceptance log) (0.5305ms)
+✔ validateRecord: accepted-without-check fires on an unparseable Opened: (unknown is not grandfathered) (0.2849ms)
+✔ seam S3: accepted-without-check never fires for a non-code Artifact: path (no resolvable sha), even opened after the cutoff (0.2735ms)
+✔ accepted-without-check: existing accepted records remain grandfathered (555.0354ms)
+✔ validateRecord: closed fixtures require the exact closed merge receipt (0.7765ms)
+✔ validateRecord: fresh worker on an obsolete fact -> scope-drift on a fixture repo (202.7455ms)
+✔ validateRecord: scope-unresolvable (info) fires when the Scope: path has no history at ref, not when it does (117.2663ms)
+✔ validateRecord: a git invocation that fails outright yields neither scope-drift nor scope-unresolvable (0.6032ms)
+✔ validateRecord: scope-drift is not attempted without both gitDir and ref (0.1146ms)
+✔ validateRecord: scope-drift never invokes git unless BOTH gitDir and ref are given (0.3483ms)
+✔ validateRecord: workaround-overdue fires for a past 'by <date>' removeWhen, in any status (0.207ms)
+✔ validateRecord: workaround-overdue does not fire for a future date or a worded condition (0.2527ms)
+✔ validateRecord: bugfix-gate-missing fires when Class: is set, Status: accepted, and no evidence path's basename contains prefix-test (2.0785ms)
+✔ validateRecord: bugfix-gate-missing does not fire once an evidence path's basename contains prefix-test (1.7926ms)
+✔ validateRecord: runnable-with-owner fires when Status: runnable and Owner: is present and not none (0.1619ms)
+✔ validateRecord: runnable-with-owner does not fire when Owner: is none (0.0883ms)
+✔ validateRecord: runnable-with-owner does not fire when Owner: is missing entirely (0.0599ms)
+✔ validateRecord: runnable-with-owner does not fire when Owner: is whitespace-only (parses to empty string) (0.0809ms)
+✔ validateRecord: runnable-with-owner does not fire when Owner: is tab-only (parses to empty string) (0.1027ms)
+✔ validateRecord: runnable-with-owner does not fire when Owner: has no value at all on the line (0.0635ms)
+✔ validateRecord: runnable-with-owner does not fire for a non-runnable status with an owner (0.0727ms)
+✔ checkRecordSet: a work id held by exactly one record produces no finding (0.1394ms)
+✔ checkRecordSet: a work id held by more than one record produces duplicate-work-id with both paths (0.1376ms)
+✔ checkRecordSet: records with no work field are skipped, not treated as one more duplicate group (0.059ms)
+✔ checkRecordSet: three or more distinct work ids with one duplicated pair reports only that pair (0.1367ms)
+✔ checkRecordSet: works end to end against listRecords' own [{ path, record }] shape (5.9146ms)
+✔ checkAcceptance accepts matching abbreviated approval in live and pinned modes (243.4152ms)
+✔ checkAcceptance resolves against repoRoot, not an inherited GIT_DIR pointed at another repo (197.2678ms)
+✔ checkAcceptance refuses a moved live ref without falling back to the reviewed artifact (301.1438ms)
+✔ checkAcceptance preserves historical failures but refuses a current contradictory review (369.7717ms)
+✔ checkAcceptance rejects malformed identity, duplicate fields, and fake Observed examples (143.4606ms)
+✔ checkAcceptance validates every evidence path and refuses realpath escapes (161.2495ms)
+✔ checkAcceptance rejects noncommit objects and contradictory approval text (210.3483ms)
+✔ seam S2: a historical `VERDICT: NEEDS_FIXES (<n>)` evidence file (no sha) counts as history, not a malformed verdict (186.2148ms)
+✔ seam S2: a current `VERDICT: NEEDS_FIXES (<n>)` for the artifact under review still refuses acceptance (no sha means it can't be for THIS artifact, so it counts as history, not a live refusal) (165.5444ms)
+✔ checkAcceptance requires exactly one delivery mode and leaves input bytes unchanged (188.2891ms)
+✔ check-acceptance CLI emits only the pinned success JSON (221.2447ms)
+✔ checkAcceptance requires a top-level Observed metadata paragraph (767.6142ms)
+✔ checkAcceptance accepts top-level Observed at body start, after blank, or after Predicts (534.9382ms)
+✔ checkAcceptance sees empty duplicate and unknown headers in its strict header pass (223.3333ms)
+✔ checkAcceptance rejects an ambiguous branch/tag delivery name (277.3195ms)
+✔ checkAcceptance pinned mode requires a hexadecimal commit identity (130.8535ms)
+✔ checkAcceptance: sha-not-in-git fires closed when Worktree: is absent (an old record shape), in both modes (202.9814ms)
+✔ checkAcceptance: sha-not-in-git fires closed for a missing worktree path (170.4529ms)
+✔ checkAcceptance: sha-not-in-git fires in live mode when the named worktree's HEAD is on a different sha (another branch) (276.1896ms)
+✔ checkAcceptance: pinned mode refuses a Worktree: in a wholly unrelated repository, even though it resolves (281.7772ms)
+✔ checkAcceptance: pinned mode refuses a same-repo artifact that only lives on a diverged sibling branch (378.6474ms)
+✔ checkAcceptance: pinned mode still passes when the artifact is an ancestor of Worktree:'s (moved-forward) HEAD (264.5ms)
+✔ checkAcceptance: Artifact-repo: resolves Artifact:, Worktree: and the pinned artifact against a separate repository (repo B) (359.3893ms)
+✔ checkAcceptance: the same cross-repo record, without Artifact-repo:, still refuses sha-not-in-git (243.2275ms)
+✔ checkAcceptance: Artifact-repo: naming --repo itself refuses artifact-repo-same (184.0473ms)
+✔ checkAcceptance: a relative Artifact-repo: refuses (artifact-repo-not-absolute) (137.5975ms)
+✔ checkAcceptance: a missing Artifact-repo: directory fails closed with sha-not-in-git (146.3296ms)
+✔ checkAcceptance: pinned mode refuses an artifact that is not an ancestor of Worktree: inside the Artifact-repo: (513.7356ms)
+✔ checkAcceptance: r3 - a Worktree: directory outside the Artifact-repo: repository refuses; its linked worktree passes (646.6743ms)
+✔ checkAcceptance: F2 - a bare Artifact-repo: (git clone --bare) refuses sha-not-in-git (330.4225ms)
+✔ checkAcceptance: F3 - a --repo that is not itself a git repository refuses artifact-repo-same, never accepts (268.7546ms)
+✔ checkAcceptance: F4/M3 - a symlink to --repo, and a linked worktree of --repo, both refuse artifact-repo-same (304.4247ms)
+✔ checkAcceptance: F4/M4 - Worktree: given as a branch name resolves inside Artifact-repo:, not --repo (399.3991ms)
+✔ checkAcceptance: Worktree: accepts a local branch name (not only a filesystem path), even after repo HEAD has moved past it (254.3544ms)
+✔ checkAcceptance: a Worktree: value that is neither a resolvable path nor a local branch name still fails closed (166.6815ms)
+✔ acceptRecord's real output never trips accepted-without-check, even opened on/after the cutoff (202.817ms)
+✔ acceptRecord: accepts with a passing check, flips Status: reviewed -> accepted, and appends an accepted Log line (194.1392ms)
+✔ acceptRecord: refused on a bad verdict line, and the record file is left byte-for-byte unchanged (162.9517ms)
+✔ acceptRecord: refused on a sha git does not have (sha-not-in-git), and the record file is left byte-for-byte unchanged (147.5741ms)
+✔ acceptRecord: refused on an unresolvable Worktree: path, and the record file is left byte-for-byte unchanged (170.6331ms)
+✔ acceptRecord: there is no bypass - every option is forwarded to checkAcceptance, so a caller cannot skip it with an extra or renamed flag (167.8032ms)
+✔ `accept` CLI: emits the pinned success JSON with a path, and mutates the record on disk to accepted (232.7492ms)
+✔ `accept` CLI: a failing check exits non-zero, reports the reason on stderr, and never touches the record (212.2461ms)
+✔ acceptanceMain: stderr output is prefixed with the finding code in brackets (167.3269ms)
+✔ acceptRecord: refuses when the record changes between checkAcceptance's read and the write (TOCTOU) (188.2541ms)
+✔ acceptRecord: refuses when the --census file's bytes change between checkAcceptance's read and acceptRecord's own read (TOCTOU on the census file) (193.3065ms)
+✔ acceptanceMain: an unrecognized command is refused, not silently treated as check-acceptance (0.268ms)
+✔ isCensusFile: recognises the VERDICT: COUNTED header line, and refuses a file lacking it (not parsed loosely) (0.1169ms)
+✔ extractCensusSummary: copies bullets, leadTurns/wall-clock lines, and by-model/by-role tables verbatim, in file order (8.0502ms)
+✔ extractCensusSummary: a second table with identical rows to an earlier one is copied whole (not dropped as a duplicate), and a non-bold summary bullet is copied too (0.1407ms)
+✔ extractCensusTimestamp: reads the leadLastMessageAt field on the census's header line, or null when it's absent (3.0241ms)
+✔ extractCensusTimestamp: a role label formatted like a future ISO timestamp elsewhere in the report never rescues the real leadLastMessageAt — skills-a MAJOR C2 probe (0.1569ms)
+✔ extractCensusTimestamp: a leadLastMessageAt field anywhere but line 1 is ignored - a header without it fails closed (0.0713ms)
+✔ checkAcceptance: census-stale still fires when a --role-map-style label elsewhere in the report is formatted like a LATER timestamp — skills-a MAJOR C2 probe, end to end (145.6766ms)
+✔ isIncompleteCensus: true only for an '- INCOMPLETE:' Summary bullet, not for the word appearing in unrelated prose (0.1199ms)
+✔ checkAcceptance/acceptRecord: census-incomplete refuses a census whose Summary carries an INCOMPLETE bullet (a default subagent dir could not be enumerated) (211.8373ms)
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+work-record: WARN strict-exempt: Opened before 2026-09-27T08:32:15Z; Spec-session/Spec-from/model rules are warnings for this record
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/evidence/review.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/example.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/evidence/review.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/example.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/evidence/review.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/example.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/evidence/review.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/example.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/evidence/review.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/example.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/evidence/review.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/example.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/wr-2026-09-27-strict.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/wr-2020-01-01-backdated.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/wr-2026-09-27-opened-later.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/wr-2020-01-01-readded.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/work/wr-2020-01-01-readded.record.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'seed.txt', LF will be replaced by CRLF the next time Git touches it
+✔ end to end: build-census.mjs's own INCOMPLETE output (EACCES on a default subagent dir) is refused by accept --census with census-incomplete (157.5497ms)
+✔ acceptRecord: refuses with census-missing when neither --census nor --no-census is given (98.3012ms)
+✔ acceptRecord: refuses with census-missing when both --census and --no-census are given (95.4811ms)
+✔ acceptRecord: refuses with census-missing when --no-census carries an empty or whitespace-only reason (95.5491ms)
+✔ acceptRecord: --no-census writes the reason visibly into a Census: line, and the record is otherwise accepted normally (176.9548ms)
+✔ acceptRecord: a --no-census reason containing a newline is collapsed to a single line, not written as-is (212.5467ms)
+✔ acceptRecord: a --census file lacking the recognised header refuses with census-missing (not parsed loosely) (117.4942ms)
+✔ acceptRecord: real Codex CLI PARTIAL census with unknown model attribution is refused (449.2592ms)
+✔ acceptRecord: a legacy UNSUPPORTED census retains the explicit no-census diagnostic (119.3769ms)
+✔ acceptRecord: a recognised census file with no extractable summary lines writes the visible placeholder, not zero Census: lines (189.868ms)
+✔ acceptRecord: accepted with --census - copies summary lines under Census:, and stores the census file next to the record's evidence (208.959ms)
+✔ checkAcceptance/acceptRecord: census-stale fires when the census file's timestamp predates the record's last review (144.692ms)
+✔ checkAcceptance: census-stale does not fire when the census timestamp is at or after the record's last review (187.9594ms)
+✔ checkAcceptance: census-stale does not fire when the census timestamp exactly equals the record's last review (185.2141ms)
+✔ checkAcceptance: census-stale fires when the census falls between an earlier and a later Log: reviewed entry (the LAST review is used, not the first) (124.8016ms)
+✔ checkAcceptance: census-stale fails closed when a Log: reviewed entry's `at` is unparseable, even when another reviewed entry is valid and would otherwise pass (123.4863ms)
+✔ checkAcceptance: census-stale fails closed when the record has no Log: reviewed entry to compare against (126.9358ms)
+✔ checkAcceptance: census-stale fails closed when the census file carries no timestamp at all (121.0818ms)
+✔ checkAcceptance: opts.censusPath is fully optional - every pre-census caller (no census opt at all) is unaffected (179.9005ms)
+✔ `accept` CLI: --census end to end - refuses census-missing without a flag, then accepts and writes Census: lines with it (293.6043ms)
+✔ skills/team-build/SKILL.md: the census command in the acceptance section names build-census.mjs with --lead, --marker and --out, run after the last review's Log line (24.4551ms)
+✔ checkAcceptance: lead-session-missing fires closed when Lead-session: is absent (no override) (107.2081ms)
+✔ checkAcceptance: lead-session-missing fires when Lead-session: is a placeholder, not a real session id (M4) (105.6056ms)
+✔ checkAcceptance: lead-session-missing fires for interpolation leftovers and bracketed placeholders (M-B) (441.7266ms)
+✔ checkAcceptance: a Lead-session: field lets an otherwise-valid record pass (no other change to the check) (179.0189ms)
+✔ checkAcceptance: missing Spec-session:/Spec-from: is a WARN, not a refusal (191.0149ms)
+✔ checkAcceptance: Spec-session:/Spec-from: WARN also fires on a placeholder or a non-timestamp, not just absence (m1) (189.0482ms)
+✔ acceptRecord: warnings from checkAcceptance pass through unchanged (accept still succeeds and flips Status:) (197.4167ms)
+✔ acceptanceMain: a WARN is written to stderr, not only inside the stdout JSON, and exit code stays 0 (m2) (199.6483ms)
+✔ checkAcceptance: Spec-from: WARN fires on non-ISO text that Date.parse would still accept (m-B) (532.5462ms)
+✔ parseRecord: four-read's own fixture record (with Base:) parses with no errors (seam) (0.4642ms)
+✔ acceptRecord: a record carrying Base: accepts (seam: four-read's Number 3 range) (185.2712ms)
+✔ requireStrictRecordShape (via acceptRecord): a duplicate Lead-session: line refuses as a duplicate singleton field (MINOR 4, seam) (122.6206ms)
+✔ acceptRecord: --at stamps the accepted Log: line at the given timestamp (198.306ms)
+✔ acceptRecord: --at refuses a timestamp earlier than the record's last Log: entry (188.8889ms)
+✔ acceptRecord: --at refuses a timestamp more than 5 minutes in the future (177.9861ms)
+✔ acceptRecord: --at refuses a stale T more than 10 minutes old, even when it is after the record's last Log: entry (seam r2) (172.2384ms)
+✔ acceptRecord: a --four-read measured to one T refuses when accept stamps another (seam r2) (181.5118ms)
+✔ acceptanceMain: --at is parsed into acceptAt (seam: shared timestamp with four-read.mjs --accept-at) (0.21ms)
+✔ acceptRecord: without --four-read the record shows 'Four numbers: not run' (196.1491ms)
+✔ acceptRecord: --four-read copies R1's numbers[] entries under Four numbers:, in order (187.76ms)
+✔ acceptRecord: an unreadable or non-JSON --four-read path refuses with four-read-invalid, record left unchanged (108.3178ms)
+✔ acceptRecord: an old flat-object --four-read shape (not R1's numbers[]) refuses with four-read-invalid, record left unchanged (116.7035ms)
+✔ acceptRecord: --four-read rows with the wrong keys, duplicate keys, or a blank label refuse with four-read-invalid (102.1956ms)
+✔ acceptRecord: a --four-read value containing embedded header-like lines cannot inject them into the record (175.5644ms)
+✔ acceptRecord: a hung Log: line refuses when THIS accept's --four-read reports zero Work lost or stalled (round 1 review B1) (118.2272ms)
+✔ acceptRecord: the same hung Log: line accepts when THIS accept's --four-read reports a non-zero Work lost or stalled (round 1 review B1) (196.7959ms)
+✔ acceptRecord: without --four-read, a hung Log: line skips R4 with a warning and never refuses (accept's own 'not run' marker is never counted as a present line) (175.6165ms)
+✔ acceptRecord: refuses when the --four-read file's bytes change between checkAcceptance's read and acceptRecord's own read (TOCTOU on the four-read file) (177.0648ms)
+✔ docs/GOALS.md and docs/goals/card.md carry no phrase this build's evidence contradicts (STALE regexes, doesNotMatch) (11.0477ms)
+✔ STALE regexes: fail when a stale claim returns in different words (mutation probe) (0.1521ms)
+✔ closeRecord: accepted record closes only after its merge is on main, and writes the full merge receipt (211.3783ms)
+✔ closeRecord: malformed final Log timestamp refuses both stale and current closes without changing bytes (419.3233ms)
+✔ closeRecord: rejects non-accepted, unmerged, repeated, and stale closure attempts without changing the record (269.396ms)
+✔ parseCloseArgs: --closeout/--dry-run are bare flags, --by is a name/value pair distinct from --merge/--at (0.1301ms)
+✔ closeoutRecord: --by is required (96.3911ms)
+✔ closeoutRecord: --by containing whitespace is refused (by-malformed), never reaches the Log: write (95.4758ms)
+✔ closeoutRecord: L3 - a --by that does not match Lead-session: refuses all four steps before step 1 (close) ever runs, live and dry-run alike (177.5998ms)
+✔ checkMergeReady: a branch whose record says reviewed is refused, accepted passes, the working tree is not consulted (372.893ms)
+✔ checkMergeReady: a closed record, a record missing from the branch, and an option-shaped branch are all refused (388.9939ms)
+✔ acceptanceMain: merge-check exits 1 with [not-accepted-for-merge] on a reviewed branch and 0 on an accepted one, and writes no file (357.1529ms)
+✔ acceptanceMain: plain 'close --dry-run' (no --closeout) is refused (closeout-flag-without-closeout), and performs no close - pins base's own throw-on-unrecognized-argv behavior (180.5649ms)
+✔ closeoutRecord: runs the existing close, then a failed merge proof (git fetch origin fails, no origin remote) refuses every one of the four cleanup steps with the same UNVERIFIABLE reason, and still writes the closeout Log: line (268.3798ms)
+✔ closeoutRecord: --dry-run on an already-closed record changes nothing on disk and reports 'close: closed (already)' (267.9595ms)
+✔ withdrawRecord: transition table — each of rejected/blocked/runnable/owned may be withdrawn, exactly one Log line each (17.9699ms)
+✔ withdrawRecord: exact before/after Status: line and Log: line text for rejected -> withdrawn (8.1503ms)
+✔ withdrawRecord: never from accepted, refused before any write (R2) (2.7896ms)
+✔ withdrawRecord: refuses a record that is already withdrawn, and never a second time (2.6151ms)
+✔ withdrawRecord: refuses with no --reason, and with an empty/whitespace-only --reason (1.5173ms)
+✔ withdrawRecord: requires --by and --at, as accept does (1.6433ms)
+✔ withdrawRecord: refuses a --by longer than the Log: owner slot (64), file unchanged (2.2282ms)
+✔ withdrawRecord: refuses a non-ISO or backdated --at, file unchanged (5.2954ms)
+✔ withdrawRecord: every non-withdrawable source status is refused, file byte-identical (10.6643ms)
+✔ withdrawRecord: refuses --superseded-by naming a record that does not exist on disk, file unchanged (3.1366ms)
+✔ withdrawRecord: refuses a --superseded-by that is not a work id (path, subdirectory, or self-reference), file unchanged (4.9786ms)
+✔ withdrawRecord: --superseded-by writes a Superseded-by: header that round-trips through parseRecord (R1) (3.6952ms)
+✔ withdrawRecord: preserves every other byte of the record (WORKAROUND lines, prose body, trailing newline) (3.4819ms)
+✔ parseWithdrawArgs: positional record path plus flag map (0.1627ms)
+✔ parseWithdrawArgs: refuses when argv[0] is not withdraw, or the record path is missing (0.0826ms)
+✔ acceptanceMain: withdraw dispatches end-to-end (CLI shape), writes the record and prints JSON (3.008ms)
+✔ acceptanceMain: withdraw refusal (no --reason) writes stderr, exit 1, no stdout, record unchanged (1.9327ms)
+✔ isStrictRecord: Opened at/after STRICT_FROM is strict; before it is not (no repoRoot given - no commit to check) (0.1828ms)
+✔ isStrictRecord: opts.strictFrom overrides STRICT_FROM (tests only - no CLI flag exists) (0.0935ms)
+✔ isStrictRecord: no commit yet - Opened: alone decides, and is still strict for new work (47.9605ms)
+✔ isStrictRecord: an unparseable Opened: with no commit yet is strict, never exempt (round 1 review M2) (0.2838ms)
+✔ isStrictRecord: a record Opened one minute before STRICT_FROM, whose file was first committed after it, is strict (defeats backdating; spec Acceptance attack) (98.9884ms)
+✔ isStrictRecord: backdating Opened: buys nothing once the file is committed after STRICT_FROM (exemption abuse; spec Acceptance attack) (99.5575ms)
+✔ isStrictRecord: Opened: after STRICT_FROM with a commit author-dated before it is still strict - the LATER instant wins, not the commit alone (round 1 review m3) (99.8404ms)
+✔ isStrictRecord: with several add-commits for the same path, the EARLIEST one counts (round 1 review m3) (216.6451ms)
+✔ checkMeasureTruthRules: Base: absent or malformed refuses naming Base, strict or not (0.6141ms)
+✔ checkMeasureTruthRules: a valid 40-hex Base: passes on a non-strict record with no other new-rule problem (0.109ms)
+✔ checkMeasureTruthRules: strict record refuses on Spec-session: absent or a placeholder (0.2342ms)
+✔ checkMeasureTruthRules: an unparseable Opened: is refused on the strict fields, not warned strict-exempt (round 1 review M2) (0.1135ms)
+✔ checkMeasureTruthRules: strict record refuses on Spec-from: absent or not an ISO-8601 UTC Z instant (0.4156ms)
+✔ checkMeasureTruthRules: strict record refuses Spec-from: with an offset instead of Z, and says to convert it (spec Acceptance attack) (0.2619ms)
+✔ checkMeasureTruthRules: strict record with a real Spec-session:, a Z Spec-from:, and a satisfying reviewed line passes clean (0.6237ms)
+✔ R3: MODEL_TIER_TOKENS matches docs/model-tiers.md's own tier table (the sync) (11.9962ms)
+✔ countedModelTiers: whole-word, case-insensitive, bounded by non-[A-Za-z0-9.] (claude-opus-5-5 counts as Opus) (0.3343ms)
+✔ countedModelTiers: negation - no/not/without within the two words before the token names no model (spec Acceptance attack) (0.0978ms)
+✔ countedModelTiers: a compound's own prefix is not counted as one of the two negation words (round 1 review m1) (0.1147ms)
+✔ checkMeasureTruthRules: strict record refuses a reviewed Log line with no counted model token, naming that line's timestamp (0.2785ms)
+✔ checkMeasureTruthRules: 'no Opus reviewer was used' on a reviewed line refuses (negation attack, spec Acceptance paragraph) (0.1695ms)
+✔ checkMeasureTruthRules: a reviewed line whose note contains SKIPPED needs no model (the loop's seam SKIPPED) (0.1526ms)
+✔ R3 seam: the loop's own reviewed line satisfies R3 on a strict record: seam r1 APPROVE dddddddd (0.1264ms)
+✔ R3 seam: the loop's own reviewed line satisfies R3 on a strict record: seam SKIPPED; territory  (0.0872ms)
+✔ checkMeasureTruthRules: a lowercase 'skipped' in ordinary prose does not exempt a model-less reviewed line (R3 bypass, round 1 review M1) (0.1445ms)
+✔ checkMeasureTruthRules: lowercase 'approve' in ordinary prose is not read as the loop's APPROVE verdict (false refusal, round 1 review M1) (0.1081ms)
+✔ checkMeasureTruthRules: a delivered line whose note contains APPROVE with no model refuses (lane sixteen's shape) (0.1334ms)
+✔ checkMeasureTruthRules: the same delivered APPROVE line with a model token (Opus reviewer) passes (lane sixteen's fix) (0.1116ms)
+✔ checkMeasureTruthRules: refuses when no reviewed line names a high/top token with APPROVE, even if every individual line passes (0.125ms)
+✔ checkMeasureTruthRules: old reviewed lines dated before STRICT_FROM are not re-judged (0.121ms)
+✔ checkMeasureTruthRules: an undated (unparseable at) reviewed/APPROVE Log line is judged by R3, never skipped (round 1 review M3) (0.1299ms)
+✔ checkMeasureTruthRules: a Log: line naming hung/stall/relaunch refuses when Four numbers: Work lost or stalled is zero (0.1431ms)
+✔ checkMeasureTruthRules: the same Log: line passes when Four numbers: Work lost or stalled is non-zero (0.096ms)
+✔ checkMeasureTruthRules: the same Log: line passes with a zero count when an unindented Stall:/Gap: body paragraph explains it (0.0956ms)
+✔ R4 seam: R6's '0 gap(s) ... stalled; M waiting-on-agents (X min)' reads N=0 and refuses; unavailable wording refuses; N>0 passes (0.1864ms)
+✔ checkMeasureTruthRules: no Four numbers: line at all skips the check and warns, never refuses (0.1031ms)
+✔ checkMeasureTruthRules: 'installed'/'install' never match the stall-word check (must not match; spec Acceptance attack) (0.1514ms)
+✔ checkMeasureTruthRules: R4 applies regardless of strict - a strict record with a contradicting Log line still refuses (0.1802ms)
+✔ checkMeasureTruthRules: an undated (unparseable at) hung/stall/relaunch Log line is judged by R4, never skipped (round 1 review M3) (0.125ms)
+✔ R5 fixture: lane eleven pre-fix (2f197f1) is refused naming Spec-from, under the injected strictFrom (1.3899ms)
+✔ R5 fixture: lane eleven post-fix (65d2994) passes the new rules, under the injected strictFrom (1.251ms)
+✔ R5 fixture: lane fifteen pre-fix (c36e4d3) is refused naming Spec-from (the offset), under the injected strictFrom (5.4637ms)
+✔ R5 fixture: lane fifteen post-fix (d0da77c) is STILL refused on Spec-from alone (contracts.md R5's correction of spec.md's own inconsistency) (1.1928ms)
+✔ R5 fixture: lane fifteen post-fix (d0da77c) passes once its Spec-from offset is converted to Z, proving Spec-from was the only failing field (round 1 review m2) (0.5997ms)
+✔ R5 fixture: lane fifteen's Log hung/relaunched line, with its '1 gap(s)' Four numbers line, passes R4 (0.4378ms)
+✔ R5 fixture: lane sixteen pre-fix (4e01139) is refused naming the model rule on the delivered APPROVE line (5.3566ms)
+✔ R5 fixture: lane sixteen post-fix (9c4e1b0) passes the new rules, under the injected strictFrom (0.9564ms)
+✔ R5 fixture: under the real STRICT_FROM, all six fixtures are non-strict and print strict-exempt with no other refusal (1.7661ms)
+✔ checkAcceptance: a strict record with valid Spec-session/Spec-from/Base and a reviewed Opus APPROVE line passes with no measure-truth warnings (283.3656ms)
+✔ checkAcceptance: a strict record refuses on Base: even though everything else is valid (120.0926ms)
+✔ checkAcceptance: a strict record refuses on Spec-session: even though it would only WARN pre-cutoff (120.6847ms)
+✔ checkAcceptance: a strict record refuses on a reviewed Log line with no model token, naming that line's timestamp (117.7212ms)
+✔ acceptRecord: a strict record accepts, and the accepted Log: line itself never needs a model token (it names no APPROVE) (180.803ms)
+✔ lane 67: skills/team-build/SKILL.md names one route, the opening fields, the new blockers, and when the record is committed (1.4209ms)
+✔ lane 67: docs/work-record.md documents Workflow: and Measure: and the WORKFLOW_FROM refusal (0.4185ms)
+✔ L-C4.1: the script parses under node --check (39.5797ms)
+✔ L-C4.2 & L-C4.7: meta is a pure object literal; phases are {title, detail} objects titled Setup, Build, Review, Fix, Integrate, Seam, Accept, Second host in order (0.6274ms)
+✔ L-C4.3: every banned token is absent from the source, each checked by name (0.5183ms)
+✔ bonus: the source never calls pipeline( (L-C3: not used at the territory level, or anywhere, in this script) (0.1022ms)
+✔ L-C4.4: every agent( call site carries a model: and an agentType: key, matching one of the pinned pairs (1.2649ms)
+✔ L-C4.5: `args ?? {}` (or `args ?? ({})`) is the first code statement referencing args (0.3829ms)
+✔ L-C4.6: log( appears within 5 source lines of the literal string 'rounds-exhausted' (0.738ms)
+✔ L-C4.8: BUILD, REVIEW, INTEGRATE, SETUP, and ACCEPT_PREP each appear as a schema: value in at least one agent( call (0.2369ms)
+✔ lane 68 item 3: the state-file mandate (a one-file write) does not carry the denial-handling sentence (0.1002ms)
+✔ R9: every mandate constant carries the note-send prohibition (0.2801ms)
+✔ R2: missing specPath/baseSha/startedAt returns missing-args and spawns nothing (1.4169ms)
+✔ R2: args entirely undefined also returns missing-args and spawns nothing (1.0015ms)
+✔ R4: a two-sha baseSha like 'a+b' returns bad-base-sha and spawns nothing (0.3944ms)
+✔ R4: baseSha shorter than 7 hex characters, or containing a non-hex character, is bad-base-sha (0.3074ms)
+✔ R4: a valid 7-40 hex baseSha (either length, any case) is accepted, not bad-base-sha (0.9719ms)
+✔ R2: mixing a given territory with a setup territory is a launch error, nothing spawns (0.2124ms)
+✔ R2: a territory with only one or two of {worktree, branch, briefPath} is ambiguous, also mixed-territory-modes (0.1629ms)
+✔ m2: startFrom with a non-sha string (e.g. the literal 'HEAD') is a launch error, nothing spawns (0.155ms)
+✔ m2: startFrom with an unrecognized verdict is a launch error, never silently runs from round 1 (0.1479ms)
+✔ m2: startFrom NEEDS_FIXES without a findingsPath is a launch error (0.1463ms)
+✔ m2: startFrom on a setup territory is a launch error (R6: only valid on given territories) (0.1325ms)
+✔ m1: a trailing slash on integrationWorktree does not nest the setup worktree inside it (0.8836ms)
+✔ m1: a trailing slash on integrationBranch does not produce an empty slug (0.3561ms)
+✔ given path: no territories, integrator still runs once, empty territories and blockers (0.2177ms)
+✔ given path: one territory, immediate APPROVE: one build call, one review call, one integrate call, rounds=1 (0.2934ms)
+✔ given path: NEEDS_FIXES once then APPROVE: fix round re-runs build with the SAME pinned builder pair, rounds=2 (0.2557ms)
+✔ given path: a null agent() return on the build stage is respawned once and succeeds (0.2137ms)
+✔ given path: seam S1 sha prefix acceptance still works (sameSha/longerSha unchanged) (0.2797ms)
+✔ given path: NEEDS_FIXES at every round exhausts maxRounds: blocker rounds-exhausted, log() fires (0.3939ms)
+✔ given path: cross-territory concurrency uses parallel(), never pipeline(): two territories complete independently (0.2504ms)
+✔ given path: returns the full R7 superset shape and nothing else (0.1752ms)
+✔ a null integrator return twice falls back to a BLOCKED INTEGRATE result rather than throwing (0.2313ms)
+✔ S1: the integrate prompt names the integration worktree/branch/gate when integrationWorktree is given, and omits it entirely otherwise (0.7725ms)
+✔ R6: startFrom APPROVE skips build and review entirely, goes straight to Integrate (0.2193ms)
+✔ R6: startFrom NEEDS_FIXES starts at a fix round (round 2), no round-1 build or review call (0.1915ms)
+✔ setup path: setup-failed when a returned territory's headSha doesn't match baseSha (0.2888ms)
+✔ setup path: setup-failed when a returned worktree/branch/briefPath doesn't match the computed name (0.18ms)
+✔ setup path: setup-failed when a returned branch doesn't match the computed name (0.1556ms)
+✔ setup path: setup-failed when a returned briefPath doesn't match the computed name (0.1487ms)
+✔ setup path: setup-failed when a territory row is missing from the returned territories array (0.2276ms)
+✔ setup path: setup agent dying twice gives setup-failed with id '*' and spawns nothing else (0.2218ms)
+✔ setup path: setup-failed when the returned seamBriefPath differs from the computed one (0.2106ms)
+✔ setup path: setup-failed when the returned reviewerBriefPath or integratorBriefPath differs from the computed one (0.2831ms)
+✔ M1: a correct but relative reviewerBriefPath (resolved against integrationWorktree) passes setup verification (0.2359ms)
+✔ M1: a correct but relative integratorBriefPath, seamBriefPath and reportPath (each resolved against integrationWorktree) all pass setup verification (0.5712ms)
+✔ M1: no other leniency — a genuinely different reviewerBriefPath still fails setup verification after normalising (0.1757ms)
+✔ R7: a correct but relative briefPath (resolved against integrationWorktree) passes setup verification (0.1833ms)
+✔ R7: a correct but relative worktree (resolved against integrationWorktree) passes setup verification (0.1638ms)
+✔ R7: a '../' escape that still resolves to the exact computed briefPath passes verification (0.152ms)
+✔ R7: a trailing slash on a returned worktree does not itself cause a mismatch (0.1679ms)
+✔ R7: no other leniency — a genuinely different briefPath still fails setup verification after normalising (0.1307ms)
+✔ R7: a genuinely different worktree still fails setup verification after normalising (0.1207ms)
+✔ setup path: computed branch/worktree names use integrationBranch's last segment as slug (0.1697ms)
+✔ S1: the setup prompt names the integration worktree/branch/gate for the integrator brief it writes (0.177ms)
+✔ s11: setup prompt carries a report path, and a mismatched returned reportPath is setup-failed (0.261ms)
+✔ N2: the setup prompt never renders undefined when integrationBranch/integrationGate are absent (0.1933ms)
+✔ S4: accept-prep is skipped (no-integration-branch) when integrationWorktree is given but integrationBranch is not (0.6686ms)
+✔ S4: the seam-fix prompt never renders a literal undefined Gate when integrationGate is absent (0.2569ms)
+✔ setup path: full fixture run produces setup, builds, reviews, integrate, seam APPROVE, and accept-prep with censusPath and checkAcceptance (8.5954ms)
+✔ given path (integrationWorktree absent): seam:null, acceptance:null even with two territories (0.3125ms)
+✔ R4: given mode with an explicit seamBriefPath uses it for the seam review, not the reviewer brief (0.2154ms)
+✔ R4: given mode with NO seamBriefPath falls back to the reviewer brief for the seam review (0.1696ms)
+✔ m4: given mode with an EMPTY-STRING seamBriefPath falls back to the reviewer brief, same as absent (0.161ms)
+✔ R4: seam NEEDS_FIXES triggers one seam-fix builder on the integration worktree, then a delta re-review that APPROVEs (0.1972ms)
+✔ M2: seam-fix that makes no new commit does not leak the current HEAD into the re-review prompt (0.203ms)
+✔ m9: seam round-1 sha mismatch against integrate.headSha blocks with review-sha-mismatch (0.1632ms)
+✔ m9: seam agent dying twice falls back to BLOCKED agent-died rather than throwing (0.1903ms)
+✔ R4: seam rounds-exhausted when NEEDS_FIXES persists through maxRounds (0.2068ms)
+✔ R4: seam is SKIPPED (not run) with a single territory, since the default requires two or more (0.184ms)
+✔ R4: seam:true forces the seam stage even with a single territory (0.161ms)
+✔ R4: seam:false suppresses the seam stage even with two or more territories (0.1466ms)
+✔ R5: accept-prep is skipped (acceptance.skipped) when seam is NEEDS_FIXES (0.2073ms)
+✔ R5: accept-prep is skipped when recordPath is absent, even with seam APPROVE (0.1766ms)
+✔ R5: accept-prep runs when seam is SKIPPED and integrator PASSed (no seam stage needed) (0.3271ms)
+✔ R5: accept-prep is skipped when the integrator did not PASS (0.1751ms)
+✔ M4: accept-prep is skipped (territory-blockers) when a territory is builder-BLOCKED, even though the integrator PASSed (0.3551ms)
+✔ M4: accept-prep is skipped (territory-blockers) when one of two territories is blocked (0.2547ms)
+✔ M3: accept-prep returning an unverified integrationHead (e.g. the literal 'HEAD') adds an accept-prep review-sha-mismatch blocker (0.2182ms)
+✔ M3: accept-prep is checked against the seam's (longer) APPROVE sha, not the integrator's shorter one (0.3635ms)
+✔ s11: accept-prep returning a reportPath that differs from the computed one adds an accept-prep report-path-mismatch blocker (0.2043ms)
+✔ R9: no rendered prompt across build/review/integrate/setup/seam/accept-prep contains any note-send instruction other than the prohibition itself (1.7338ms)
+✔ build-loop-args.example.json (new one-launch shape) parses and matches the setup-territory shape (5.5822ms)
+✔ build-loop-args.legacy.example.json (old given-worktree shape) parses and matches the given-territory shape (5.2641ms)
+✔ both example arg files launch cleanly against the given/setup detection with no mixed-territory-modes error (0.9451ms)
+✔ lane 67 item 2: every builder, reviewer, integrator, runner and seam-fix prompt carries the deadline line, default 45 minutes (0.4633ms)
+✔ lane 67 item 2: the setup runner's prompt carries the deadline line too, and agentMinutes sets N (0.2744ms)
+✔ lane 67 item 2: agentMinutes is validated like maxRounds: a non-number, zero or negative falls back to 45 (0.651ms)
+✔ lane 67 item 2: a builder BLOCKED whose note names timeout is the blocker agent-timeout; the other territory carries on (0.2157ms)
+✔ lane 67 item 2: a builder BLOCKED with any other note stays builder-blocked (0.1295ms)
+✔ lane 67 item 2: a fix-round builder BLOCKED naming timeout is agent-timeout (0.1464ms)
+✔ lane 67 item 2: a reviewer BLOCKED naming timeout is agent-timeout (the review schema allows BLOCKED and a note) (0.1894ms)
+✔ lane 67 item 2: a seam-fix builder or a seam reviewer timeout is the seam blocker agent-timeout (0.2989ms)
+✔ lane 67 item 2: an integrator BLOCKED naming timeout is reported as the blocker integrator agent-timeout (0.1569ms)
+✔ lane 67 item 2: the script says plainly that the deadline is a prompt-level limit because the Workflow API has no per-agent limit (0.0675ms)
+✔ lane 67 item 3: without recordPath there is no state call at all, and the run is today's run (0.1605ms)
+✔ lane 67 item 3: the first call reads the state file beside the record (path computed in pure JS), schema-forced, sonnet runner (0.2332ms)
+✔ lane 67 item 3: an absolute recordPath, a drive-letter one included, names its loop-state file beside it (0.3607ms)
+✔ lane 67 item 3: a state write follows Build, Review, Integrate, Seam and Accept, each carrying version 1, baseSha, specPath, territory rows, integrator and seam (0.3538ms)
+✔ lane 67 item 3: parallel territories coalesce their state writes: two territories finishing together cost fewer writes than one per territory per phase (0.2297ms)
+✔ lane 67 item 3: a territory never waits on its own state write: the review starts while the Build write is still pending (0.3151ms)
+✔ lane 67 item 3: a state write that fails (null) is logged and the build carries on (0.247ms)
+✔ lane 67 item 3: a state recording APPROVE at a sha resumes that territory as startFrom: no build, no review (0.2566ms)
+✔ lane 67 item 3: a state recording NEEDS_FIXES with findings resumes at a fix round (round 2) against those findings (1.0088ms)
+✔ lane 67 item 3: an explicit startFrom in args overrides the state file for that territory (0.2175ms)
+✔ lane 67 item 3: a state whose baseSha or specPath differs from the args is ignored with a log, and the run starts fresh (0.6754ms)
+✔ lane 67 item 3: no state file (found false) or a dead read is a fresh run (0.3179ms)
+✔ lane 67 item 3: an integrator the state records as PASS over the same approved set is skipped; a different approved set runs it again (0.3408ms)
+✔ lane 67 item 3: a seam the state records as APPROVE for the same integrator head is skipped (0.1899ms)
+✔ lane 67 item 3: a seam the state records as APPROVE over a DIFFERENT integrator head is stale and the seam runs again (0.1995ms)
+✔ lane 67 item 3: a setup-mode relaunch whose state shows Setup done reuses the recorded names, verified as today, and spawns no setup runner (0.2455ms)
+✔ lane 67 item 3: a recorded Setup whose names no longer verify is not trusted: Setup runs again (0.2283ms)
+✔ lane 67 item 3: a fresh setup run records Setup in the state file, setup block verbatim (0.3683ms)
+✔ lane 67 item 4a: the short-versus-full sha check accepts a 7+ hex prefix in both directions and still refuses a different commit (0.3556ms)
+✔ lane 67 item 4b: a drive-letter specPath is absolute: setup accepts returned paths relative to the integration worktree, and the same paths spelled with a lower-case drive (0.4305ms)
+✔ lane 67 item 4b: the accept-prep report path for a C:/ specPath is the spec directory itself, never prefixed with integrationWorktree (0.3123ms)
+✔ lane 67 item 4c: the setup prompt makes the integrator brief say the seam review runs AFTER Integrate and never gates the merge; the integrate prompt says so too (0.2434ms)
+✔ lane 67 addendum (h): a runner-reported check-acceptance FAIL is accept-prep-failed, and report-path-mismatch never masks it (0.1836ms)
+✔ lane 67 addendum (h): an empty recordChanged, or a reported error, is accept-prep-failed (0.308ms)
+✔ lane 67 addendum (h): a successful accept-prep still gets the report-path check, and a changed record with a PASS check is not a failure (0.2779ms)
+✔ lane 67 item 5: without secondHost nothing is spawned for it and the return's secondHost is null (0.9193ms)
+✔ lane 67 item 5: secondHost runs one runner (delegation:runner, sonnet, label second-host) after Accept and its result goes into the return (0.3341ms)
+✔ lane 67 item 5: secondHostGate replaces the default suite command (0.1985ms)
+✔ lane 67 item 5: a Windows-looking secondHost is a blockers entry and nothing is spawned for it (0.713ms)
+✔ lane 67 item 5: the suite does not run when acceptance skipped (0.2116ms)
+✔ lane 67 item 5: a failed or blocked suite, a suite at another head, and a dead runner are blockers, never silent (0.5383ms)
+✔ lane 67 item 5: C:/ specPath puts the second-host log beside the spec, not under the integration worktree twice (0.251ms)
+✔ lane 67: every prompt the script renders, state and second-host runners included, carries the note-send prohibition (0.24ms)
+ℹ tests 520
+ℹ suites 0
+ℹ pass 520
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 27914.6236
