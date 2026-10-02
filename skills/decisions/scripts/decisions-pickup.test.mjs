@@ -16,6 +16,7 @@ import {
 } from './decisions-pickup.mjs';
 import * as pickupModule from './decisions-pickup.mjs';
 import { publish, defaultReadPickupCapture } from './decisions-render-publish.mjs';
+import { toggleFiles, CARD_SHA } from './toggles-fixtures.mjs';
 
 const PAGE = `<summary>Choose transport</summary>
 - [x] Keep the existing transport
@@ -1488,7 +1489,14 @@ function wedgeBlock(title, options, { ticked = [], comments = [] } = {}) {
     '</details>',
   ].join('\n');
 }
-const wedgePage = (blocks, done) => `${blocks.join('\n')}\n- [${done ? 'x' : ' '}] Done`;
+// Lane 72: the page shape nests the items and the Done checkbox inside the Waiting toggle, Done as
+// its last block, so the pickup reads Done from that indented place.
+const wedgePage = (blocks, done) => [
+  '# Waiting on you now {toggle="true"}',
+  ...blocks.join('\n').split('\n').map((l) => `\t${l}`),
+  `\t- [${done ? 'x' : ' '}] Done`,
+  '\t<empty-block/>',
+].join('\n');
 
 const W_HOOK = ['It has not happened again, drop it', 'Keep watching it'];
 const W_NETCUP = ['Restart the BTO pane on Netcup', 'Leave the prompts alone'];
@@ -1554,6 +1562,7 @@ function boundPickup(fx) {
  * side (receipt, captures) is the REAL one, in the sealed home. `history` maps NY day -> text. */
 function wedgePublish(fx, { fresh, history, now = '2026-10-01T19:00:00Z', owner, lastRender = W_CLEAN }) {
   const files = new Map(Object.entries({
+    ...toggleFiles(path.join, fx.repo),
     [path.join(fx.repo, 'docs', 'decisions', 'now.md')]: 'The plugin runs the loop by itself. Ticks reach the right session within a minute. Knowledge sharing between machines is the next lane.',
     [path.join(fx.repo, 'docs', 'decisions', 'session.md')]: 'since: 2026-09-27T18:16:00Z\n- The collector runs on Netcup every 15 minutes.',
     [path.join(fx.repo, 'docs', 'decisions', 'last-render.md')]: lastRender,
@@ -1573,6 +1582,7 @@ function wedgePublish(fx, { fresh, history, now = '2026-10-01T19:00:00Z', owner,
   const refs = Object.fromEntries(Object.entries(history).map(([day, text]) => [`origin/main:docs/decisions/history/${day}.md`, text]));
   const execGit = (args) => {
     if (args[0] === 'show') { if (args[1] in refs) return refs[args[1]]; throw new Error(`fatal: ${args[1]}`); }
+    if (args[0] === 'log') return CARD_SHA;
     if (args[0] === 'ls-tree') return args.includes('docs/decisions/history') ? Object.keys(history).map((day) => `docs/decisions/history/${day}.md`).join('\n') : args[args.length - 1];
     if (args[0] === 'rev-parse') return args.includes('--abbrev-ref') ? 'main' : 'sha-fixed';
     if (args[0] === 'diff') throw new Error('there is a staged difference');
