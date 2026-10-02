@@ -15,6 +15,7 @@ Spec-from: 2026-10-02T00:50:00Z
 Base: ea3e0fb6265500369e33cffef05ab08307e4a570
 Workflow: wf_1a816e86-f8d
 Log: 2026-10-02T00:50:00.000Z owned skills-o took lane 73 from skills-f-lane-73-1; queued behind 72 and 72b, build-loop Workflow at 2026-10-02T02:19Z
+Log: 2026-10-02T02:20:00.000Z owned skills-o scope add from skills-f-lane-73-rounds-1, ruled: maxRounds already exists as a build-loop argument (default 3); the add is that the record Workflow line carries the value used, e.g. Workflow: <run id> maxRounds=<n>, written by the loop and checked by work-record. Queued for this lane's next fix round, or a follow-up round if round 1 approves
 
 Measure: work lost or stalled
 
