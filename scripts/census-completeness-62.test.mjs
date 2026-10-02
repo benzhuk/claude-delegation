@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { makeTempHome } from './test-home.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BUILD_CENSUS = path.join(HERE, 'build-census.mjs');
@@ -23,7 +24,8 @@ const MEASURES = path.join(HERE, 'census-measures.mjs');
 const SEP = '  and  ';
 
 const tracked = [];
-after(() => { for (const d of tracked) fs.rmSync(d, { recursive: true, force: true }); });
+const sealedHome = makeTempHome();
+after(() => { sealedHome.cleanup(); for (const d of tracked) fs.rmSync(d, { recursive: true, force: true }); });
 function mkTmp(prefix) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   tracked.push(dir);
@@ -37,7 +39,7 @@ function writeRows(file, rows) {
   writeText(file, `${rows.map((r) => (typeof r === 'string' ? r : JSON.stringify(r))).join('\n')}\n`);
 }
 function runNode(script, args) {
-  const r = spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', timeout: 60000, env: { ...process.env, DELEGATION_TOP_TIER: '', CLAUDE_DELEGATION_TOP_TIER: '' } });
+  const r = spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', timeout: 60000, env: { ...sealedHome.env, DELEGATION_TOP_TIER: '', CLAUDE_DELEGATION_TOP_TIER: '' } });
   return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
 }
 

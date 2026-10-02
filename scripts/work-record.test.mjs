@@ -4094,7 +4094,7 @@ test("lane62 F7: accept refuses a real Claude PARTIAL census with --no-census gu
   ].join("\n") + "\n");
   const cli = (extra, out) => spawnSync(process.execPath, [
     fileURLToPath(new URL("./build-census.mjs", import.meta.url)), "--lead", lead, "--out", out, ...extra,
-  ], { encoding: "utf8" });
+  ], { env: childEnv(fs.mkdtempSync(path.join(os.tmpdir(), "work-record-cli-home-"))), encoding: "utf8" });
 
   const counted = path.join(dir, "counted.md");
   const c = cli([], counted);
