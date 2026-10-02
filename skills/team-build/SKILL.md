@@ -279,7 +279,10 @@ with the accepted record), never after `accept` (any record change after `accept
 a fresh check). After that `accept --census` (or `--no-census`) succeeds, push the
 branch with its accepted record. Once the record on origin says accepted and its Opus
 review verdicts and green second-host gate log are in its evidence, the lane lead merges
-its branch into main with a merge commit and pushes. Any conflict when merging into
+its branch into main with a merge commit and pushes. Accept before merge, always: run
+`node scripts/work-record.mjs merge-check --record <record> --repo <root> --branch <branch>`
+first; it reads the record as committed on that branch and exits 1 unless it says
+`Status: accepted`. Any conflict when merging into
 main — not just a non-additive one — means no merge: the lead posts a decision item
 under Waiting (template shape, with options) naming the conflicting paths instead. When
 `origin/main` is not an ancestor of the branch tip, the merge result is a new tree: run the
