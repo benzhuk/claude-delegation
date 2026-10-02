@@ -1,15 +1,15 @@
-# Xxxx xxxx {toggle="true"}
+# Goal card {toggle="true"}
 	xxxx xx xxxxxxx
-	XXXX: xxxxx xxxx xxxxx xxxxxxx xxx xxxxxxx xx xxx xxxxx. XXX: xxxxx xx xxx xxxxxx.
+	xxxx: xxxxx xxxx xxxxx xxxxxxx xxx xxxxxxx xx xxx xxxxx. xxx: xxxxx xx xxx xxxxxx.
 	<empty-block/>
-# Xxxxxxxx {toggle="true"}
-	Xxxxxxxx: XXXXXXXX (xxxx-xx-xx).
-	Xxxx xxxxxx: xxx xxx xxxxxx xxxx xxxxxxx xxxx. Xxxx xxx xxxx xxxx x.
-	Xxxxx: [Xxxxx xxxx](xxxxx://xxx.xxxxxx.xxx/xxxxxxxxx), [xxxxxxxxxx](xxxxx://xxxxxx.xxx/xxxxxxx/xxxxxx-xxxxxxxxxx/xxxx/xxxx/xxxx/xxxxxxxxx/xxxxxxx/xxxx-xx-xx.xx).
+# Bearings {toggle="true"}
+	Decision: xxxxxxxx (xxxx-xx-xx).
+	Next action: xxx xxx xxxxxx xxxx xxxxxxx xxxx. xxxx xxx xxxx xxxx x.
+	Links: [xxxxx xxxx](xxxxx://xxx.xxxxxx.xxx/xxxxxxxxx), [xxxxxxxxxx](xxxxx://xxxxxx.xxx/xxxxxxx/xxxxxx-xxxxxxxxxx/xxxx/xxxx/xxxx/xxxxxxxxx/xxxxxxx/xxxx-xx-xx.xx).
 	<empty-block/>
-# Xxxxxxxxxx {toggle="true"}
-	- Xxxx xxxx (xxx): xxxx xx xxxx xxx xxxx xxxxxxx.
-	- Xxxxx xxxxxx (xxxxxxxx): xxxxxx xxx xxxxx xxxx.
+# Components {toggle="true"}
+	- xxxx xxxx (xxx): xxxx xx xxxx xxx xxxx xxxxxxx.
+	- xxxxx xxxxxx (xxxxxxxx): xxxxxx xxx xxxxx xxxx.
 	<empty-block/>
 # Waiting on you now {toggle="true"}
 	<details>

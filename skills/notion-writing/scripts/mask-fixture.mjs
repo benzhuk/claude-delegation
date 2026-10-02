@@ -19,7 +19,9 @@ import { HEADING_PREFIX } from './page-lint.mjs';
 
 /** The only words a skeleton may still carry (compared case-insensitively). */
 export const KEYWORDS = [
-  'Waiting on you', 'Decided', 'Original text', 'Background',
+  'Waiting on you now', 'Waiting on you', 'Decided',
+  'Goal card', 'Bearings', 'Components',
+  'Decision', 'Condition', 'Next action', 'Prediction', 'Links', 'Original text', 'Background',
   'Why this is yours', 'What waits on it', 'Options, tick one', 'My recommendation',
   'Given', 'Answer here', 'Your answer',
   'Read now', 'Prior rounds', 'Round', 'Pass',
