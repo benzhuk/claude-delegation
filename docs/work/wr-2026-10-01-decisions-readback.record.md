@@ -4,8 +4,8 @@ Owner: skills-o
 Status: reviewed
 Authority: build and review on branch build/decisions-readback-72b; merge into main under the 2026-09-26 standing grant; one live publish of the decisions page after merge; no release, no install
 Next: build-loop Workflow run, suites on Netcup and Hetzner, accept, merge-check, merge, live publish, RESULT to skills-f
-Artifact: build/decisions-readback-72b@c89ee5942b0b76a1ef0497848362eb5d20b2f7ed
-Evidence: docs/work/evidence/wr-2026-10-01-decisions-readback-readback72b.md
+Artifact: build/decisions-readback-72b@a19cac33b267237d6ce30f83d70cb865c6ad4069
+Evidence: docs/work/evidence/wr-2026-10-01-decisions-readback-readback72b.md, docs/work/evidence/wr-2026-10-01-decisions-readback-suites.md
 Worktree: build/decisions-readback-72b
 Scratch: C:/Users/benzh/AppData/Local/Temp/claude/C--Users-benzh-Code-zhuk-infra-claude-delegation/a7e8fc6b-cbf3-476b-aaea-23ad30508174/scratchpad/lane-72b
 Opened: 2026-10-02T01:51:00.000Z
