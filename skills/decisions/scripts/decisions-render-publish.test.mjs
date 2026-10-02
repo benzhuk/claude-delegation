@@ -794,6 +794,7 @@ function waitingItem(title) {
   return [
     '<details>',
     `<summary>**${title}**</summary>`,
+    '\tNow: queue outgrew memory twice | To finish: you pick a cap or none | Est: a day after your tick',
     '\tEvidence: the queue outgrew memory twice this month.',
     '\t- [ ] Cap at 200 per run (recommended)',
     '\t- [ ] Run uncapped',

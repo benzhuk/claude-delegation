@@ -439,7 +439,7 @@ function seamFixPrompt(integrationWorktree, integrationGate, findingsPath, round
 // therefore live in accept-prep.mjs, a deterministic Node helper tested against real
 // fixture files (accept-prep.test.mjs); this prompt's only job is to render that helper's
 // ONE command exactly (R2's pinned flags and step order) and forbid any other edit path.
-function acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingItems, seam, artifactSha, reportPath) {
+function acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingItems, seam, artifactSha, reportPath, maxRoundsUsed) {
   const evidenceDestPaths = decidingItems.map((d) => `docs/work/evidence/${workId}-${d.lane}.md`)
   const copyText = decidingItems.length
     ? decidingItems.map((d, i) => `${d.path} -> ${integrationWorktree}/${evidenceDestPaths[i]}`).join('; ')
@@ -451,7 +451,7 @@ function acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, le
   // model 'opus'.
   const seamLogText = seam && seam.verdict === 'APPROVE' ? `seam r${seam.rounds} APPROVE ${seam.sha} (Opus reviewer)` : 'seam SKIPPED; territory reviews APPROVE (Opus reviewer)'
   const evidenceFlag = evidenceDestPaths.length ? evidenceDestPaths.join(',') : 'none'
-  const cmd = `node skills/team-build/references/accept-prep.mjs --record ${recordPath} --repo ${integrationWorktree} --plugin-root <resolve yourself: the dir holding scripts/work-record.mjs and scripts/build-census.mjs, never the integration worktree's own scripts/> --delivery-ref ${integrationBranch} --artifact-sha ${artifactSha} --worktree ${integrationBranch} --owner <the record's own Owner: field value — read the record first> --log-note "${seamLogText}" --evidence ${evidenceFlag} --lead <resolve leadSession \`${leadSession ?? '(none given)'}\` to its .jsonl path yourself when it is a session id rather than a path>${markerFlag} --census-out ${censusOut} --json`
+  const cmd = `node skills/team-build/references/accept-prep.mjs --record ${recordPath} --repo ${integrationWorktree} --plugin-root <resolve yourself: the dir holding scripts/work-record.mjs and scripts/build-census.mjs, never the integration worktree's own scripts/> --delivery-ref ${integrationBranch} --artifact-sha ${artifactSha} --worktree ${integrationBranch} --owner <the record's own Owner: field value — read the record first> --log-note "${seamLogText}" --evidence ${evidenceFlag} --lead <resolve leadSession \`${leadSession ?? '(none given)'}\` to its .jsonl path yourself when it is a session id rather than a path>${markerFlag} --max-rounds ${maxRoundsUsed} --census-out ${censusOut} --json`
   let p = `Accept-prep. Record: ${recordPath}. Integration worktree: ${integrationWorktree}. Integration branch: ${integrationBranch}. `
   p += `First, copy each deciding report (last territory APPROVE per territory, last seam APPROVE) to its evidence destination with original bytes, creating the destination directory if needed (source -> destination, destinations are repo-relative under ${integrationWorktree}): ${copyText}. `
   p += `Then, with the delegation plugin root (the same directory you pass as --plugin-root) as your working directory, run exactly this one command, filling in only the three bracketed values yourself (--plugin-root, --owner and --lead) and changing nothing else — this command is the ONLY way you may change the record; never hand-edit its header, its Status:, or any Log: line any other way: \`${cmd}\`. `
@@ -1196,7 +1196,7 @@ if (!integrationWorktree) {
 
   const acceptReportPath = `${specDirAbsolute()}/reports/accept-prep.md`
   const acceptOpts = { agentType: 'delegation:runner', model: 'sonnet', schema: ACCEPT_PREP, phase: 'Accept', label: 'accept-prep' }
-  const acceptPromptText = acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingItems, seam, expectedHead, acceptReportPath)
+  const acceptPromptText = acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingItems, seam, expectedHead, acceptReportPath, maxRounds)
   let acceptResult = await agent(acceptPromptText, acceptOpts)
   if (acceptResult === null) {
     log('accept-prep: agent died, respawning once')

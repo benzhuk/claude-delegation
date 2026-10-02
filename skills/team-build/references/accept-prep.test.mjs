@@ -241,7 +241,7 @@ test("lane 67 (d): editRecord inserts Artifact: and Evidence: when absent, after
     worktree: "build/open", owner: "skills-f", logNote: "note",
     evidence: "docs/work/evidence/wr-open-L1.md,docs/work/evidence/wr-open-seam.md", now: "2026-10-01T12:00:00.000Z",
   });
-  assert.deepEqual(changed, ["Status", "Artifact", "Evidence", "Worktree", "Log"]);
+  assert.deepEqual(changed, ["Status", "Artifact", "Evidence", "Worktree", "Workflow", "Log"]);
   const expected = [
     "Work: wr-2026-10-01-open",
     "Scope: docs/specs/open/spec.md",
@@ -252,7 +252,7 @@ test("lane 67 (d): editRecord inserts Artifact: and Evidence: when absent, after
     "Opened: 2026-10-01T10:00:00.000Z",
     "Lead-session: sess-0123456789",
     "Scratch: /tmp/scratch/sess/lane",
-    "Workflow: wf_abc123",
+    "Workflow: wf_abc123 maxRounds=3",
     "Artifact: build/open@9999999999999999999999999999999999999999",
     "Evidence: docs/work/evidence/wr-open-L1.md, docs/work/evidence/wr-open-seam.md",
     "Worktree: build/open",
@@ -598,4 +598,75 @@ test("main: exits 1 and writes nothing to stdout on a bad-args failure", () => {
   const code = main(["--record", "r.md"], io);
   assert.equal(code, 1);
   assert.match(io.stderr.chunks.join(""), /missing required option/);
+});
+
+// -------------------------------------------------------------------------------------
+// lane 73 (F1): the record's Workflow: line carries `maxRounds=<n>`, the round bound used.
+// -------------------------------------------------------------------------------------
+
+function makeWorkflowRecord(workflowLine) {
+  const repo = mkTmp("accept-prep-repo-");
+  const recordRel = "docs/work/wr-x.record.md";
+  const recordAbsPath = path.join(repo, recordRel);
+  fs.mkdirSync(path.dirname(recordAbsPath), { recursive: true });
+  const text = fs.readFileSync(FIXTURE_NO_WORKTREE, "utf8").replace("Base: ", `${workflowLine}Base: `);
+  fs.writeFileSync(recordAbsPath, text);
+  return { repo, recordRel, recordAbsPath };
+}
+
+function editOpts(repo, recordRel, extra = {}) {
+  return {
+    repo, recordPath: recordRel,
+    deliveryRef: "build/fixture-int", artifactSha: "2".repeat(40),
+    worktree: "build/fixture-int", owner: "skills-n", logNote: "seam SKIPPED",
+    evidence: "docs/work/evidence/fixture-seam.md", now: "2026-10-02T04:00:00.000Z",
+    ...extra,
+  };
+}
+
+test("F1: a record naming a run gets `<run id> maxRounds=<n>` with the value used", () => {
+  const { repo, recordRel, recordAbsPath } = makeWorkflowRecord("Workflow: wf_abc-123\n");
+  const changed = editRecord(editOpts(repo, recordRel, { maxRounds: "5" }));
+  assert.ok(changed.includes("Workflow"));
+  const updated = fs.readFileSync(recordAbsPath, "utf8");
+  assert.match(updated, /^Workflow: wf_abc-123 maxRounds=5$/m);
+  assert.equal((updated.match(/^Workflow:/gm) ?? []).length, 1);
+});
+
+test("F1: maxRounds omitted writes the default 3", () => {
+  const { repo, recordRel, recordAbsPath } = makeWorkflowRecord("Workflow: wf_abc-123\n");
+  editRecord(editOpts(repo, recordRel));
+  assert.match(fs.readFileSync(recordAbsPath, "utf8"), /^Workflow: wf_abc-123 maxRounds=3$/m);
+});
+
+test("F1: a second accept-prep replaces the bound rather than appending another", () => {
+  const { repo, recordRel, recordAbsPath } = makeWorkflowRecord("Workflow: wf_abc-123 maxRounds=3\n");
+  editRecord(editOpts(repo, recordRel, { maxRounds: 4 }));
+  assert.match(fs.readFileSync(recordAbsPath, "utf8"), /^Workflow: wf_abc-123 maxRounds=4$/m);
+});
+
+test("F1: `Workflow: none, <reason>` and a record with no Workflow line are left alone; --workflow inserts one", () => {
+  const none = makeWorkflowRecord("Workflow: none, Codex-led: no Workflow tool\n");
+  assert.ok(!editRecord(editOpts(none.repo, none.recordRel, { maxRounds: "5" })).includes("Workflow"));
+  assert.match(fs.readFileSync(none.recordAbsPath, "utf8"), /^Workflow: none, Codex-led: no Workflow tool$/m);
+
+  const absent = makeRepoWithRecord(FIXTURE_NO_WORKTREE);
+  assert.ok(!editRecord(editOpts(absent.repo, absent.recordRel)).includes("Workflow"));
+  assert.ok(!/^Workflow:/m.test(fs.readFileSync(absent.recordAbsPath, "utf8")));
+
+  const given = makeRepoWithRecord(FIXTURE_NO_WORKTREE);
+  assert.ok(editRecord(editOpts(given.repo, given.recordRel, { workflow: "wf_given", maxRounds: "2" })).includes("Workflow"));
+  assert.match(fs.readFileSync(given.recordAbsPath, "utf8"), /^Workflow: wf_given maxRounds=2$/m);
+});
+
+test("F1: parseArgs takes --max-rounds and --workflow, and refuses a non-integer bound or a `none` run id", () => {
+  const base = [
+    "--record", "r.md", "--repo", "/x", "--plugin-root", "/p", "--delivery-ref", "b", "--artifact-sha", "a".repeat(40),
+    "--worktree", "b", "--owner", "o", "--log-note", "n", "--evidence", "none", "--lead", "/l.jsonl", "--census-out", "c.md",
+  ];
+  const ok = parseArgs([...base, "--max-rounds", "4", "--workflow", "wf_1"]);
+  assert.equal(ok.maxRounds, "4");
+  assert.equal(ok.workflow, "wf_1");
+  assert.throws(() => parseArgs([...base, "--max-rounds", "three"]), (e) => e.code === "bad-args");
+  assert.throws(() => parseArgs([...base, "--workflow", "none"]), (e) => e.code === "bad-args");
 });

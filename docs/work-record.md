@@ -32,7 +32,8 @@ use (`hooks/agent-dispatch-guard.mjs`) to stay ReDoS-safe. Values are right-trim
 | `Work:` | yes | `wr-<yyyy-mm-dd>-<slug>`, unique, lowercase, `[a-z0-9-]` |
 | `Scope:` | yes | For Git-backed work, `<path>@<sha>` — the spec or brief and the commit it was read at; the path uses forward slashes, always. For non-code work, an attributable stable file or URI reference; record the reviewed snapshot, digest, or source/read time in the body. |
 | `Owner:` | yes | `<slug>` or `none` |
-| `Status:` | yes | one of `runnable`, `owned`, `delivered`, `rejected`, `reviewed`, `accepted`, `closed`, `blocked`, `withdrawn` |
+| `Status:` | yes | one of `open`, `NEEDS BEN`, `NEEDS <peer slug>`, `FAILED`, `accepted`, `closed` (lane 73), or an older word still readable: `runnable`, `owned`, `delivered`, `rejected`, `reviewed`, `blocked`, `withdrawn` |
+| `Now:` | conditional (see below) | `<one line> | To finish: <one line> | Est: <duration>`, the same line a progress report carries as line 2; where the work is, what must still happen, how much longer |
 | `Authority:` | yes | what may happen without Ben, and what may not |
 | `Artifact:` | yes | For Git-backed work, `<branch>@<sha>`; for non-code work, an attributable stable file or URI reference; or `none` before an artifact exists. |
 | `Artifact-repo:` | no | an absolute path to a directory inside a git worktree of the repository that holds `Artifact:`, for cross-repo work only — see "Artifacts in another repository" below |
@@ -51,6 +52,29 @@ use (`hooks/agent-dispatch-guard.mjs`) to stay ReDoS-safe. Values are right-trim
 | `Measure:` | no | the one census measure this build is expected to move: top-tier tokens per build, hours ask to accepted, rework after acceptance, or work lost or stalled |
 
 ### Status meanings
+
+Lane 73 words (the set accept and merge-check accept, plus `reviewed`, below):
+
+- `open` - someone is working; not waiting on anyone.
+- `NEEDS BEN` / `NEEDS <peer slug>` - cannot move until that person acts; the `Now:` line says on what.
+- `FAILED` - the work failed; `Now:` says why and `To finish:` what a retry needs.
+- `accepted` and `closed` - as below.
+- `PARTIAL` is not a word anywhere: a long-running goal sits in it for weeks.
+
+`accept` and `merge-check` refuse a record whose `Status:` is any word outside `open`, `NEEDS BEN`,
+`NEEDS <peer slug>`, `FAILED`, `accepted`, `closed` and `reviewed` (error code `status-word-refused`); `reviewed`
+stays because it is the one state accept consumes (accept still requires `Status: reviewed`, merge-check
+still requires `accepted`). The older words below stay readable so no existing record is rewritten.
+
+### The `Now:` line (lane 73)
+
+Every non-terminal record opened on or after `2026-10-02T04:00:00Z` (`PROGRESS_LINE_FROM`) carries one
+`Now:` header line, refreshed by whoever writes the record; `validateRecord` reports a missing one as
+`missing-field` and `accept` refuses it (`progress-line-missing`). A `Now:` line that is present must
+always have the exact three-field shape, at any date. Earlier records and `accepted`, `closed` and `withdrawn`
+ones are exempt.
+
+### Older Status words (still readable)
 
 - `runnable` — authorized and unblocked, nobody owns it.
 - `owned` — someone is working.
@@ -103,6 +127,11 @@ time, by `checkAcceptance` and `acceptRecord` (and so by accept-prep's check-acc
   gets a warning only, in the `"warnings":[...]` array.
 - A `Workflow:` value that is a bare `none` with no reason is refused (`workflow-invalid`) at
   any date.
+- A `Workflow:` value that names a run is written `<run id> maxRounds=<n>`, `n` the build loop's
+  round bound actually used (accept-prep sets it from `--max-rounds`, default 3). One without
+  `maxRounds=<n>` is refused (`workflow-maxrounds-missing`) only when `Spec-from:` is parseable and
+  on or after `MAXROUNDS_FROM` (`2026-10-02T03:00:00Z`, `opts.maxRoundsFrom` for tests). `none, <reason>`
+  carries no bound, and an already accepted record is never rewritten or refused for it.
 
 `checkWorkflowField(record, opts)` takes `opts.workflowFrom` the way `checkScratchField` takes
 `opts.scratchFrom`: for tests only, there is no CLI flag to move it. `Workflow:` and `Measure:`
@@ -306,7 +335,7 @@ only attempted when both `gitDir` and `ref` are given.
 | Code | Level | Fires when |
 |---|---|---|
 | `missing-field` | finding | a required field's `Label:` line is absent |
-| `bad-status` | finding | `Status:` is not one of the seven values |
+| `bad-status` | finding | `Status:` is not one of the older words or the lane 73 words (`open`, `NEEDS BEN`, `NEEDS <peer slug>`, `FAILED`) |
 | `bad-work-id` | finding | `Work:` doesn't match `wr-<yyyy-mm-dd>-<slug>` |
 | `accepted-without-artifact` | finding | `Status: accepted` and `Artifact:` is `none` or missing |
 | `accepted-without-evidence` | finding | `Status: accepted` and no evidence path resolves inside the repo |
@@ -322,6 +351,7 @@ only attempted when both `gitDir` and `ref` are given.
 | `scratch-invalid` | finding | `Scratch:` is present but not an absolute directory path |
 | `workflow-missing` | refusal (accept), or warning | no `Workflow:` line; a refusal when `Spec-from:` is on/after `WORKFLOW_FROM`, a warning otherwise (see "The `Workflow:` field" above) |
 | `workflow-invalid` | refusal (accept) | `Workflow:` is a bare `none` with no reason |
+| `workflow-maxrounds-missing` | refusal (accept) | `Workflow:` names a run with no `maxRounds=<n>`, `Spec-from:` on/after `MAXROUNDS_FROM` |
 | `artifact-repo-not-absolute` | finding | `Artifact-repo:` is present but not an absolute directory path |
 
 `scope-drift`'s git check can also emit `scope-unresolvable`, level `info` — when

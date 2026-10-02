@@ -147,6 +147,11 @@ closed item's record lives in `docs/decisions/history/<today>.md`, per "Closing"
 Status narrative and logs live in the repo (`docs/work`, `docs/ledger`), not on this page
 (not checked).
 
+Every waiting item carries `Now: <one line> | To finish: <one line> | Est: <duration>` as one short line
+directly under its title (at most 200 characters), and every session bullet that begins "In progress"
+carries the same three fields inside its 200 characters; the renderer refuses a source file without
+them, naming file and line (checked by `decisions-render-progress.test.mjs`).
+
 Everything under Waiting is a decision item with options, including a request for
 the owner to do something by hand: post it with a `Done by hand` option (never a bare
 `Done`, which the reader takes for the page's Done), per the template's action-request
