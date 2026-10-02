@@ -4,7 +4,7 @@ Owner: skills-o
 Status: reviewed
 Authority: build and review on branch build/triage-fetch-first-71; merge into main under the 2026-09-26 standing grant; no release, no install
 Next: build-loop Workflow run, suites on Netcup and Hetzner, accept, merge-check, merge, RESULT to skills-f
-Artifact: build/triage-fetch-first-71@ca73c38a3e225a4352766d05dd949655a8634ea0
+Artifact: build/triage-fetch-first-71@6b6365dfef2af9d913f36911572250a5248013c3
 Evidence: docs/work/evidence/wr-2026-10-01-triage-fetch-first-triage71.md, docs/work/evidence/wr-2026-10-01-triage-fetch-first-suites.md
 Worktree: .claude/worktrees/lane-71
 Scratch: C:/Users/benzh/AppData/Local/Temp/claude/C--Users-benzh-Code-zhuk-infra-claude-delegation/a7e8fc6b-cbf3-476b-aaea-23ad30508174/scratchpad/lane-71
