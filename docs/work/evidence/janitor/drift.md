@@ -4,3 +4,5 @@
 - 2026-09-28 ben-desktop: worktrees=54 branches=70 untracked=137 diskKB=unknown
 - 2026-09-29 ben-desktop: worktrees=58 branches=77 untracked=0 diskKB=unknown
 - 2026-09-29 ben-desktop: worktrees=53 branches=73 untracked=161 diskKB=unknown
+- 2026-09-30 ben-desktop: worktrees=41 branches=57 untracked=198 diskKB=unknown
+- 2026-10-01 ben-desktop: worktrees=2 branches=4 untracked=210 diskKB=unknown
