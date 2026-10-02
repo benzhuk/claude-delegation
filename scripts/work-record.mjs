@@ -2368,12 +2368,29 @@ function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl,
  *   - no other record that is not closed/withdrawn claims that branch (recordBranchNames);
  *   - its tip is an ancestor of origin/main (merge proof: no work is lost by removing it);
  *   - the worktree is clean (closeoutWorktree refuses a dirty one and leaves it, and its branch).
+ * Whose territory a branch is (a name prefix alone cannot say: `build/x-v2` is a different lane's
+ * branch, cut after this one): the lane's own `docs/work/<work>.loop-state.json` `setup.territories[].branch`
+ * names them exactly when that file exists; without it a branch must also be an ancestor of the
+ * lane's own Artifact sha (the territory was merged into THIS lane, not merely into main).
  * Removal goes only through closeoutWorktree, one worktree line and one branch line per territory
  * (`territory-worktree` / `territory-branch`: removed, refused <reason>, absent or dirty). Nothing
  * is returned when the lane has no territory branch or worktree at all.
  */
 const TERRITORY_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.]*$/;
-export function closeoutTerritories({ repoRoot, laneBranch, mainBranch, mainRef, dryRun, spawnImpl, listWorktreesImpl, records, ownWorkId, worktreesByPath }) {
+export function loopStateTerritoryBranches(loopStatePath, fsImpl) {
+  if (!loopStatePath) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(fsImpl.readFileSync(loopStatePath, "utf8"));
+  } catch {
+    return null;
+  }
+  const list = parsed && parsed.setup && Array.isArray(parsed.setup.territories) ? parsed.setup.territories : [];
+  const names = list.map((t) => (t && typeof t.branch === "string" ? t.branch.trim() : "")).filter(Boolean);
+  return names.length > 0 ? new Set(names) : null;
+}
+
+export function closeoutTerritories({ repoRoot, laneBranch, mainBranch, mainRef, dryRun, spawnImpl, listWorktreesImpl, records, ownWorkId, worktreesByPath, loopStateBranches = null, laneArtifactSha = null }) {
   if (!laneBranch) return [];
   const prefix = `${laneBranch}-`;
   const gitEnv = withoutRepoLocatingGitEnv(process.env);
@@ -2384,7 +2401,10 @@ export function closeoutTerritories({ repoRoot, laneBranch, mainBranch, mainRef,
   }
   const worktrees = listWorktreesImpl(repoRoot);
   for (const w of worktrees ?? []) if (w.branch && !w.main) branches.add(normalizeBranchName(w.branch));
-  const found = [...branches].filter((b) => b.startsWith(prefix) && TERRITORY_ID_RE.test(b.slice(prefix.length))).sort();
+  const found = [...branches]
+    .filter((b) => b.startsWith(prefix) && TERRITORY_ID_RE.test(b.slice(prefix.length)))
+    .filter((b) => loopStateBranches === null || loopStateBranches.has(b))
+    .sort();
   const steps = [];
   for (const b of found) {
     const claimant = (records || []).find((r) => {
@@ -2402,6 +2422,15 @@ export function closeoutTerritories({ repoRoot, laneBranch, mainBranch, mainRef,
       if (anc.error || anc.status !== 0) {
         steps.push({ step: "territory-branch", ref: b, result: "refused", detail: `not merged: ${tip} is not an ancestor of origin/main` });
         continue;
+      }
+      if (loopStateBranches === null) {
+        const inLane = laneArtifactSha
+          ? spawnImpl("git", ["merge-base", "--is-ancestor", tip, laneArtifactSha], { cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: gitEnv })
+          : null;
+        if (!inLane || inLane.error || inLane.status !== 0) {
+          steps.push({ step: "territory-branch", ref: b, result: "refused", detail: `not part of this lane: ${tip} is not an ancestor of the lane's Artifact${laneArtifactSha ? ` ${laneArtifactSha}` : ""}` });
+          continue;
+        }
       }
     }
     const wt = closeoutWorktree({ root: repoRoot, worktreeField: b, branchName: b, mainBranch, cwd: process.cwd(), dryRun, listWorktreesImpl });
@@ -2509,6 +2538,7 @@ export function closeoutRecord(opts = {}) {
   // M2: --prune too, so a branch already deleted on origin drops its stale local tracking ref
   // instead of being evaluated against a sha that no longer exists there.
   let blockedReason = artifactRepoBlockedReason;
+  let laneArtifactSha = null;
   if (!blockedReason) {
     const fetchResult = spawnImpl("git", ["fetch", "--prune", "origin"], { cwd: mergeProofRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
     const fetchFailed = Boolean(fetchResult.error || fetchResult.status !== 0);
@@ -2522,6 +2552,7 @@ export function closeoutRecord(opts = {}) {
         blockedReason = error.message;
       }
       if (!blockedReason) {
+        laneArtifactSha = artifactSha;
         const anc = spawnImpl("git", ["merge-base", "--is-ancestor", artifactSha, mainRef], { cwd: mergeProofRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
         if (anc.error || anc.status !== 0) blockedReason = `Artifact ${artifactSha} is not an ancestor of origin/main`;
       }
@@ -2613,7 +2644,9 @@ export function closeoutRecord(opts = {}) {
 
     // 4b. Territory worktrees and branches of this lane (lane 74 item 4).
     if (worktreesByPath !== null && ownBranchName) {
-      for (const st of closeoutTerritories({ repoRoot, laneBranch: ownBranchName, mainBranch, mainRef, dryRun, spawnImpl, listWorktreesImpl, records, ownWorkId: record.fields.work, worktreesByPath })) results.push(st);
+      const loopStatePath = record.fields.work ? path.join(path.dirname(path.resolve(repoRoot, opts.recordPath)), `${record.fields.work}.loop-state.json`) : null;
+      const loopStateBranches = loopStateTerritoryBranches(loopStatePath, fsImpl);
+      for (const st of closeoutTerritories({ repoRoot, laneBranch: ownBranchName, mainBranch, mainRef, dryRun, spawnImpl, listWorktreesImpl, records, ownWorkId: record.fields.work, worktreesByPath, loopStateBranches, laneArtifactSha })) results.push(st);
     }
 
     // 5. Scratch directory.

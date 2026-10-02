@@ -59,6 +59,12 @@ function mergeNoFF(repo, gitEnv, branch) {
   git(["merge", "--no-ff", "-q", "-m", `merge ${branch}`, branch], repo, gitEnv);
 }
 
+// A territory is merged into ITS LANE branch (checked out in the lane's worktree); the lane tip moves.
+function mergeIntoLane(lane, gitEnv, branch) {
+  git(["merge", "--no-ff", "-q", "-m", `merge ${branch} into the lane`, branch], lane.wt, gitEnv);
+  lane.tip = git(["rev-parse", "HEAD"], lane.wt, gitEnv).trim();
+}
+
 let scratchCounter = 0;
 function mkScratch() {
   const by = `terr-test-by-${++scratchCounter}-${process.pid}`;
@@ -94,7 +100,8 @@ function landedLane() {
   const noWt = cutBranch(repo, gitEnv, "build/lane-a-t4", { worktree: false });
   // a branch that only looks like a territory (a hyphen in its id) belongs to some other lane
   const lookalike = cutBranch(repo, gitEnv, "build/lane-a-b-c");
-  for (const b of ["build/lane-a", "build/lane-a-t1", "build/lane-a-t2", "build/lane-a-t4", "build/lane-a-b-c"]) mergeNoFF(repo, gitEnv, b);
+  for (const b of ["build/lane-a-t1", "build/lane-a-t2", "build/lane-a-t4"]) mergeIntoLane(lane, gitEnv, b);
+  for (const b of ["build/lane-a", "build/lane-a-b-c"]) mergeNoFF(repo, gitEnv, b);
   git(["push", "-q", "origin", "main"], repo, gitEnv);
   git(["push", "-q", "origin", "build/lane-a"], repo, gitEnv);
   fs.writeFileSync(path.join(dirty.wt, "uncommitted.txt"), "dirty\n");
@@ -128,6 +135,38 @@ test("closeout removes a landed lane's clean, merged territory worktree and bran
   assert.ok(result.lines.some((l) => /^territory-worktree: removed /.test(l)));
   assert.ok(result.lines.some((l) => /^territory-branch: removed build\/lane-a-t4/.test(l)));
   assert.ok(result.lines.some((l) => /^territory-worktree: dirty /.test(l)));
+});
+
+test("a record-less lane named like a territory (<lane branch>-<alnum>) cut after the lane is never swept", () => {
+  const f = landedLane();
+  // another lane's branch: letters and digits after the hyphen, a worktree, clean, already on main, never merged into THIS lane
+  const gitEnv = f.gitEnv;
+  const other = cutBranch(f.repo, gitEnv, "build/lane-a-v2");
+  mergeNoFF(f.repo, gitEnv, "build/lane-a-v2");
+  git(["push", "-q", "origin", "main"], f.repo, gitEnv);
+  const result = closeoutRecord({ repoRoot: f.repo, recordPath: f.recordRel, closeoutBy: f.by });
+  const step = result.steps.find((s) => s.step === "territory-branch" && s.ref === "build/lane-a-v2");
+  assert.equal(step.result, "refused");
+  assert.match(step.detail, /not part of this lane/);
+  assert.equal(fs.existsSync(other.wt), true, "the other lane's worktree is untouched");
+  assert.notEqual(git(["branch", "--list", "build/lane-a-v2"], f.repo, gitEnv).trim(), "");
+  assert.ok(result.steps.some((s) => s.step === "territory-worktree" && s.result === "removed"), "the lane's own territories are still removed");
+  assert.equal(fs.existsSync(f.clean.wt), false);
+});
+
+test("the lane's loop-state file names its territories exactly: a branch it does not list is never swept, a listed one is", () => {
+  const f = landedLane();
+  fs.mkdirSync(path.join(f.repo, "docs", "work"), { recursive: true });
+  fs.writeFileSync(
+    path.join(f.repo, "docs", "work", "wr-2026-10-02-lane-a.loop-state.json"),
+    JSON.stringify({ version: 1, setup: { territories: [{ id: "t1", branch: "build/lane-a-t1" }, { id: "t4", branch: "build/lane-a-t4" }] } }),
+  );
+  const result = closeoutRecord({ repoRoot: f.repo, recordPath: f.recordRel, closeoutBy: f.by });
+  assert.equal(result.steps.find((s) => s.step === "territory-branch" && s.ref === "build/lane-a-t4").result, "removed");
+  assert.equal(fs.existsSync(f.clean.wt), false, "a listed territory is removed");
+  assert.ok(!result.steps.some((s) => s.ref === "build/lane-a-t2"), "a branch the file does not list is not even considered");
+  assert.equal(fs.existsSync(f.dirty.wt), true);
+  assert.notEqual(git(["branch", "--list", "build/lane-a-t2"], f.repo, f.gitEnv).trim(), "");
 });
 
 test("closeout --dry-run reports the territory steps and removes nothing", () => {
