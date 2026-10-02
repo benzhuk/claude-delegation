@@ -13,7 +13,7 @@ Lead-session: a7e8fc6b-cbf3-476b-aaea-23ad30508174
 Spec-session: a7e8fc6b-cbf3-476b-aaea-23ad30508174
 Spec-from: 2026-10-02T00:50:00Z
 Base: ea3e0fb6265500369e33cffef05ab08307e4a570
-Workflow: pending
+Workflow: wf_1a816e86-f8d
 Log: 2026-10-02T00:50:00.000Z owned skills-o took lane 73 from skills-f-lane-73-1; queued behind 72 and 72b, build-loop Workflow at 2026-10-02T02:19Z
 
 Measure: work lost or stalled
