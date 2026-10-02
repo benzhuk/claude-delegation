@@ -1,83 +1,60 @@
-VERDICT: APPROVE fbe5c591b22a552244a0ea40d8aa02a4a5c2edad
-Reviewed head: fbe5c591b22a552244a0ea40d8aa02a4a5c2edad (branch build/decisions-toggles-72-toggles72; the reviewer ran `git rev-parse HEAD` in the territory worktree, and the worktree is clean). Round 3 is a delta review of 4aaa8329..fbe5c591: one commit, 4 files, +23 and -6 lines.
+VERDICT: APPROVE 9cd8368a2406e1d3ca1f5365a3ec279008e0e174
+Reviewed head: 9cd8368a2406e1d3ca1f5365a3ec279008e0e174 (lane-72 worktree, from `git rev-parse HEAD`). This round 2 review covers the suite-finding fix only. It is a delta review of 33330b81..9cd8368a: two commits, d86d5b89 (the fix) and 9cd8368a (the builder report).
 
-# Review: toggles72, round 3
+# Review: toggles72, round 2 (the suite finding)
+
+## Prior finding, verified
+- **Suite finding (mask-fixture.test.mjs:88 fails on Netcup and Hetzner): FIXED.**
+  - **Cause.** The committed skeleton at skills/notion-writing/scripts/fixtures/render-decisions.skeleton.md was hand-masked. It used capital `X` runs and masked the renderer's fixed section names (Goal card, Bearings, Components) and labels (Decision, Next action, Links). The masker writes lowercase `x` and did not know those names. So the skeleton was not a fixed point of `maskText`, and the test at mask-fixture.test.mjs:90 failed.
+  - **The fix.** mask-fixture.mjs:21-30 adds these to KEYWORDS: `Waiting on you now`, `Goal card`, `Bearings`, `Components`, `Decision`, `Condition`, `Next action`, `Prediction` and `Links`. The skeleton was regenerated through the masker.
+  - **The labels match the renderer's output.** decisions-render-sections.mjs:203-209 emits `Decision:`, `Condition:`, `Next action:`, `Prediction` and `Links:`. The toggle names are Goal card, Bearings, Components and Waiting on you now.
+- **The test was not weakened.** One assertion changed, at mask-fixture.test.mjs:37: `# Waiting on you now` used to mask to `# Waiting on you xxx`, and now it stays as it is. That change is the intended new behaviour. The property the old assertion protected was that a shorter keyword does not swallow the word after it. Line 39 keeps that property with `# Waiting on you soon` -> `# Waiting on you xxxx`, and line 38 adds `# Goal card`. The fixed-point test (lines 83-92), the leak test and the vocabulary grep test are byte-for-byte unchanged.
+- **Mutation check.** I copied skills/notion-writing/scripts to my scratch folder (lane-72/review-r2), outside the repo. I put the 33330b81 mask-fixture.mjs back in that copy and ran `node --test mask-fixture.test.mjs` against the new skeleton. Three tests went red:
+  - "maskLine: the keywords the rules key on survive"
+  - "every committed fixture is a skeleton ... masker leaves it unchanged"
+  - "committed fixtures: a plain word grep finds only the keyword vocabulary"
+
+  So the fix is what turns them green. I made no change in the worktree.
 
 ## What I ran
-- **Focused gate.** I ran all 11 files from the territory brief, from the territory worktree. The log is in my scratch folder, not the repo. Result: tests 698, pass 698, fail 0, cancelled 0, leak check 0. This matches the builder's fix3 report: 696 tests plus 2 new ones.
-- **Diff read in full.** It touches decisions-render-sections.mjs (2 lines), decisions-render.test.mjs (+1 test), skills/notion-writing/SKILL.md (4 lines) and page-lint.test.mjs (+1 test). All four files are inside the write set.
+- **Focused gate, from the lane-72 worktree.** Files: mask-fixture.test.mjs, page-lint.test.mjs, scripts/mirror-shared-skills.test.mjs and every skills/decisions/scripts/*.test.mjs. Command: `node scripts/run-tests.mjs <files>`. Result: tests 720, pass 716, fail 0, cancelled 0, skipped 3, todo 1, leak check 0 new temp entries.
+- **Diff read in full.** It touches 3 code and fixture files plus the builder report. All three are under skills/notion-writing/scripts, the same files the suite finding named. None of them is a mirrored copy elsewhere in the repo: `git ls-files` shows only these paths.
   - docs/goals/card.md is not touched.
-  - The commit author is Ben Zhuk. There is no Co-Authored-By line, no AI byline and no Claude mention.
-  - No test does network I/O or a Notion write. The new tests call `parseBearings` and `lintPage` only.
-- **Mutation checks.** I ran these on a `git archive` export of HEAD in scratch, never on the worktree. I restored each file and checked it with `cmp`. Every mutation turned a test red:
-  - M1: I removed `&& !m[1].includes('|')` (decisions-render-sections.mjs:131). Red: "Bearings toggle: an unfilled template line is not a value (Decision with alternatives, bracketed Prediction)". Result 129 pass, 1 fail.
-  - M2: I removed `|| /^\[[^\]]*\]$/.test(text.trim())` (decisions-render-sections.mjs:138). Red: the same test, 129 pass, 1 fail.
-  - M3: in the new page-lint test, I renamed the heading to `# Waiting on you`. Red: "decisions page: the hand-written shape notion-writing section 7 describes is clean ...". Result 65 pass, 1 fail.
-  - M4: in the same test, I replaced the Goals toggle with a column-0 `> 🎯 goals link` callout. Red: the same test, 65 pass, 1 fail.
-- **Real bearings pairs.** I ran `parseBearings` on every dated pair in docs/work/evidence (scratch probe). The results are unchanged from round 2:
-  - 09-25 parses as RE-PLAN, 09-29 as RE-PLAN and 10-01 as CONTINUE.
-  - 09-24 refuses with no `Next action:`.
-  - 09-26 refuses with no Check on or Prediction line.
-  - No real `Decision:` line contains `|`. I grepped all seven assessments.
-- **Render.** `decisions-render.mjs render --repo .` exits 0. The top-level headings are, in order: Goal card, Bearings, Components, Waiting on you now and History.
-- **Stale heading name.** I grepped skills/, hooks/ and scripts/ for `Waiting on you` not followed by `now`. There are no hits in notion-writing/SKILL.md, decisions/SKILL.md, references/page-shape.md or templates/decisions-page.md. The remaining hits are all outside this round's diff and correct:
-  - the masked legacy skeleton fixture and mask-fixture.mjs;
-  - page-lint.mjs:418 and :464, prefix regexes that also match "now";
-  - two page-lint tests of the legacy shape.
+  - No AI byline, no network and no Notion write in the changed tests.
+- **Worktree state.** `git status` shows one tracked modification, docs/work/wr-2026-10-01-decisions-toggles.loop-state.json. It was there before I started and belongs to the orchestrator. Apart from this report, I wrote nothing in the worktree.
 
-## Prior findings, verified
-- **B3 (the hand-written decisions page fails page-lint): FIXED.** In skills/notion-writing/SKILL.md, line 89 (rule 9), line 90 (rule 10) and line 139 (section 7) now say `# Waiting on you now {toggle="true"}`.
-  - Section 7's two column-0 callouts are now `# 🎯 Goals {toggle="true"}` and `# How to read {toggle="true"}`.
-  - Done is the last block inside the Waiting on you now toggle.
-  - Line 104 also says "Waiting on you now", so the skill now uses one name throughout.
-  - The optional regression test exists at page-lint.test.mjs:288-297, and M3 and M4 show that it discriminates.
-  - The rule-id test ("SKILL.md names every rule id ...") is still green.
-- **N5 (an unfilled template line is read as a value): FIXED** for the two named fields, Decision and Prediction. The fix is at decisions-render-sections.mjs:131 and :138, applied verbatim from the round-2 patch. The test is at decisions-render.test.mjs:1144-1148, and M1 and M2 confirm it with mutations. A twin remains open: see N7.
-- **N6 (the renderer's own `Prediction, check 10/7 3:00 PM:` shape is refused by the fallback): STANDS as a NOTE.** The builder recorded it in fix3 next to the lead's open question about `--clear-done`. It fails safe: it refuses and invents nothing.
-- **N4 (the live Notion readback): STANDS.** It is for the lead after merge.
-
-## Scope items (status at fbe5c591)
-1. **PASS.** The three toggles regenerate from files on every render. Tests in decisions-render.test.mjs:
-   - "toggles: the page opens with Goal card, Bearings, Components ..."
-   - "rendering twice ... same bytes"
-   - the Goal card tests
-   - the Bearings tests: the missing-field refusal; "an unfilled template line is not a value" (new); "a pair shaped like the bearings skill template parses"; and the unpaired-newest test.
-2. **PASS.** The components guard fails publish and render on a nonexistent path. Tests: "Components guard: ... refuses" and "Components: a stale path outside the 4th field, or a line that is not a component, refuses". This round did not change it.
-3. **PASS.** The card-toggle stale-sha check in decisions-handback is unchanged this round, and its round-1 tests are green.
-4. **PASS** for what fixtures can show. The composed page is clean under the render's own lint call, and the render exits 0. The live read is out of scope.
-5. **PASS.** The fixtures are in skills/decisions/scripts/fixtures/toggles-fixtures.mjs. Unchanged this round.
-6. **PASS.** The page-lint `top-level-toggle` rule and its tests are green. The notion-writing hand-written shape now passes lint. Test: page-lint.test.mjs:288 "decisions page: the hand-written shape notion-writing section 7 describes is clean ...", which is mutation-confirmed.
-7. **PASS.** Done is last inside Waiting on you now, and the legacy column-0 layout still parses. Unchanged this round, and the gate is green.
-8. **PASS.** The shape rule appears once, with Ben's words, in skills/decisions/SKILL.md. Unchanged this round.
+## Scope items (status at 9cd8368a)
+This round changed only the masker, its test and one lint fixture. No renderer, handback, guard or page-lint rule code changed (`git diff --name-only`). Each item below rests on its round-3 named test, which is still green in the 720-test run above.
+1. **PASS.** The three toggles regenerate on every publish. decisions-render.test.mjs: "toggles: the page opens with Goal card, Bearings, Components ...", "rendering twice ... same bytes", and the Bearings missing-field refusal tests.
+2. **PASS.** The components guard fails on a nonexistent path and passes on a real one: "Components guard: ... refuses".
+3. **PASS.** The card-toggle stale-sha check in decisions-handback is unchanged, and its tests are green.
+4. **PASS** for what fixtures can show. The page-lint test "fixture: today's render (decisions, the render skip list) gives []" reads the regenerated skeleton and stays clean (page-lint.test.mjs:584). mirror-shared-skills.test.mjs:255 lints the mirrored copy clean as plain. The live read is out of scope.
+5. **PASS.** skills/decisions/scripts/fixtures/toggles-fixtures.mjs is unchanged.
+6. **PASS.** page-lint `top-level-toggle` is unchanged and green.
+7. **PASS.** Done is last inside Waiting on you now, and the legacy column-0 layout still parses. Unchanged and green.
+8. **PASS.** The shape rule in skills/decisions/SKILL.md is unchanged.
 
 ## Findings
 
-### N7 NOTE: an unfilled `Next action:` still parses as a value (a twin of N5)
-Evidence:
-- The bearings template says `- Next action: [one concrete action or owner decision]` (skills/bearings/references/evidence-template.md:33).
-- My probe gave `parseBearings('# B\n- Decision: \`CUT\`\n- Next action: [one concrete action or owner decision]\n- Prediction: x by 10/3.\n', '', 'p')` and got OK, with nextAction `[one concrete action or owner decision]`.
-- The `field()` helper at decisions-render-sections.mjs:151 does not check whether the value is a pointer or placeholder.
-- The risk is low. A fully unfilled template now refuses on Decision first. Only a partly filled assessment would publish the bracket text, and that text is visibly a placeholder, not an invented fact.
+### N9 NOTE: common words now survive masking on any page
+- mask-fixture.mjs:24 adds `Decision`, `Condition`, `Prediction` and `Links`.
+- These are ordinary English words. When a future real page is masked, those words in prose will now stay readable in a public skeleton, not only when they are labels. Example: "the Decision on pricing" becomes "xxx Decision xx xxxxxxx".
+- The leak is one generic word at a time and carries no private noun, so it is not a blocker.
+- Fix, only if it ever matters: keep these labels only at the start of a line before a colon. The approach would be a `LABELS` list matched by `^\t*(?:[-*]\s+)?(?:\*\*)?(Decision|Condition|Next action|Prediction|Links)(?=:)`, applied ahead of `PROTECT` in `maskPiece`. That keeps the skeleton a fixed point and masks the same words in prose. No change is needed for merge.
 
-Optional patch for decisions-render-sections.mjs:
-- Current: `  if (nextAction === null) throw new RefusedError(\`bearings ${date}: no "Next action:" line in the assessment\`);`
-- Replacement: `  if (nextAction === null || /^\[[^\]]*\]$/.test(nextAction)) throw new RefusedError(\`bearings ${date}: no "Next action:" line in the assessment, or it is the unfilled template text\`);`
-
-Predicted result: the probe refuses. The real 09-25, 09-29 and 10-01 pairs are unchanged, because none has a bracket-only next action. The existing "a missing field refuses" test still matches, if it checks `/Next action/`.
-
-### N8 NOTE: a prose `|` on a filled Decision line now refuses
-- My probe gave `- Decision: \`CONTINUE\`. Covers a | b.` and got REFUSE: no decision found.
-- This fails safe: it refuses and invents nothing. No real assessment has a `|` on its Decision line.
-- A tighter guard, if it ever bites: `!/\`\s*\|\s*\`/.test(m[1])`. It matches only the template's backticked alternation.
-- No change is needed for merge.
+### N10 NOTE: the Bearings toggle in the skeleton has no Prediction line
+- render-decisions.skeleton.md:5-9 holds Decision, Next action and Links. The renderer always emits a Prediction line (decisions-render-sections.mjs:206).
+- The round-1 skeleton had the same three lines, so this round did not introduce it.
+- It only weakens how closely the lint fixture mirrors a real render. The page-lint rules do not key on Bearings content.
+- Optional: regenerate the skeleton from a current real render the next time the fixture is touched.
 
 ## Areas checked and clean
-- The SKILL.md edits change no rule id, and skill-text.test and the page-lint rule-id test are green.
-- The new page-lint test builds the Waiting toggle children with the same tab-indent helper as `decisionsPage`, so the fixture shape is consistent.
-- The worktree had no modifications before or after this review. I wrote nothing in it.
+- The keyword boundary still holds. `Decision` does not match inside `Decisions` or `Undecided`: the `(?![\p{L}\p{N}])` guard is at mask-fixture.mjs:40, and the test at line 41 is green.
+- Longest-first ordering (mask-fixture.mjs:38) lets `Waiting on you now` win over `Waiting on you`, and line 39 confirms the shorter keyword does not extend.
+- All 4+ committed skeletons are still fixed points with no leaks. The test covers every .md file in fixtures/.
 
 ## C4 fields
-Cause: In round 2, the notion-writing rules 9 and 10 and section 7 named the Waiting heading `Waiting on you` and kept column-0 callouts. page-lint's done-last rule only recognises `Waiting on you now` (page-lint.mjs:490), and top-level-toggle forbids column-0 blocks. Separately, the bearings parser accepted the template's unfilled Decision and Prediction lines as values.
-Discriminating check: `lintPage` on the section-7 shape gives `[]` at fbe5c591, and goes red when the heading is renamed (M3) or a callout is restored (M4). `parseBearings` refuses the unfilled-template probes, and goes red when either guard is removed (M1 and M2).
-Fix location: skills/notion-writing/SKILL.md:89, :90, :104 and :139 (text); decisions-render-sections.mjs:131 and :138; tests at page-lint.test.mjs:288 and decisions-render.test.mjs:1144.
-Simplification: One heading name, `Waiting on you now`, is now used across the render, the hand-written page, page-lint and decisions-read. Placeholder text is treated as absent rather than as a value.
+Cause: The render-decisions skeleton was hand-masked with capital X runs, and the renderer's fixed names and labels were not in the masker's KEYWORDS. So `maskText(skeleton) !== skeleton`, and mask-fixture.test.mjs:90 failed on the full suite.
+Discriminating check: With the 33330b81 mask-fixture.mjs put back on a scratch copy against the new skeleton, three mask-fixture tests fail. With the HEAD masker, all pass (720 tests, 0 fail).
+Fix location: skills/notion-writing/scripts/mask-fixture.mjs:21-30 (KEYWORDS), skills/notion-writing/scripts/fixtures/render-decisions.skeleton.md:1-14 (regenerated), skills/notion-writing/scripts/mask-fixture.test.mjs:37-39.
+Simplification: The fixture is now generated by the masker, not written by hand. Being a fixed point holds by construction, so no separate hand-masking convention is needed.
