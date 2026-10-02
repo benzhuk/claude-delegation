@@ -23,7 +23,7 @@ async function git(options, repo, args) {
   });
   const out = r.stdout.toString("utf8").trim();
   const ok = r.code === 0 && !r.error && !r.timedOut;
-  const error = ok ? "" : r.timedOut ? "timed out" : r.error ? String(r.error.code ?? r.error.message) : flat(`${r.stderr} ${out}`).slice(0, 300);
+  const error = ok ? "" : r.timedOut ? "timed out" : r.error ? String(r.error.code ?? r.error.message) : flat(`${out} ${r.stderr}`).slice(0, 300);
   return { ok, out, error };
 }
 
