@@ -2585,7 +2585,7 @@ test("lane 74 item 1: BUILD_MANDATE tells the builder to commit before its repor
 test("lane 74 item 1: a commit runner runs after every Build and Fix call, on that territory's own worktree, with the pinned runner pair", async () => {
   const stub = makeAgentStub({
     "build:T1:r1": buildResult("aaaaaaa1"),
-    "review:T1:r1": reviewResult("NEEDS_FIXES", "aaaaaaa1", "f1.md"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "a".repeat(40), "f1.md"),
     "build:T1:r2": buildResult("aaaaaaa2"),
     "review:T1:r2": reviewResult("APPROVE", "aaaaaaa2", "f1b.md"),
     "build:T2:r1": buildResult("bbbbbbb1"),
@@ -2691,4 +2691,51 @@ test("lane 74 item 1: no Review, Integrate or Accept agent is followed by a comm
   });
   await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
   assert.deepEqual(stub.commitCalls.map((c) => c.opts.label), ["commit:T1:r1"]);
+});
+
+// F1 (round 1 review): the phase commit moves HEAD, so a reviewer reads the commit sha, not the
+// builder's pre-commit sha. The loop adopts the commit runner's sha so that review is not BLOCKED
+// review-sha-mismatch.
+test("lane 74 F1: a real phase commit moves HEAD and the reviewer's commit sha is accepted (territory)", async () => {
+  const X = "c".repeat(40);
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "commit:T1:r1": { committed: true, sha: X, reason: "committed" },
+    "review:T1:r1": reviewResult("APPROVE", X, "f1.md"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
+  assert.equal(result.territories[0].verdict, "APPROVE");
+  assert.equal(result.territories[0].blocker, null);
+  assert.equal(result.territories[0].sha, X);
+});
+
+test("lane 74 F1: a refused or clean phase commit leaves the builder's own sha as the review target", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "commit:T1:r1": { committed: false, sha: "c".repeat(40), reason: "clean" },
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1", "f1.md"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
+  assert.equal(result.territories[0].verdict, "APPROVE");
+  assert.ok(result.territories[0].sha.startsWith("aaaaaaa1"));
+});
+
+test("lane 74 F1: a real seam-fix phase commit moves HEAD and the seam re-reviewer's commit sha is accepted", async () => {
+  const X = "e".repeat(40);
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", integrationGate: "node scripts/run-tests.mjs", seam: true };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1", "f1.md"),
+    integrate: integrateResult("PASS", FULL_HEAD),
+    "seam:r1": reviewResult("NEEDS_FIXES", FULL_HEAD, "seam1.md"),
+    "seam-fix:r2": buildResult("f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5"),
+    "commit:seam-fix:r2": { committed: true, sha: X, reason: "committed" },
+    "seam:r2": reviewResult("APPROVE", X, "seam2.md"),
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.seam.verdict, "APPROVE");
+  assert.equal(result.seam.blocker, null);
+  assert.equal(result.seam.sha, X);
 });

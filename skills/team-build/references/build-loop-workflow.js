@@ -454,7 +454,15 @@ const COMMIT_MANDATE =
   'Your only output is the schema-forced return; run that one helper command and no other git command, never stage or commit by hand, never delete anything; never set or switch a git identity; never push. If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block. Never send peer notes.'
 
 function phaseCommitPrompt(worktree, message) {
-  return `Phase-end commit. Worktree: ${worktree}. Run \`node <plugin-root>/skills/team-build/references/phase-commit.mjs --worktree ${worktree} --message "${message}" --json\`, resolving <plugin-root> yourself as the directory that holds skills/team-build/references/phase-commit.mjs (never the worktree's own copy), and return committed, sha and reason exactly as its JSON line states them. A reason of clean, no-identity, protected-branch, detached-head or operation-in-progress is an answer, not an error: return it as given and do not retry or work around it. ${deadlineLine()} ${COMMIT_MANDATE}`
+  return `Phase-end commit. Worktree: ${worktree}. Run \`node <plugin-root>/skills/team-build/references/phase-commit.mjs --worktree ${worktree} --message "${message}" --json\`, resolving <plugin-root> yourself as the directory that holds skills/team-build/references/phase-commit.mjs (never the worktree's own copy), and return committed, sha and reason exactly as its JSON line states them. A reason of clean, no-identity, protected-branch, detached-head, operation-in-progress, not-worktree-root or main-checkout is an answer, not an error: return it as given and do not retry or work around it. ${deadlineLine()} ${COMMIT_MANDATE}`
+}
+
+// The phase commit moves the territory HEAD, and the reviewer compares the HEAD it reads with the
+// sha the loop holds. When the commit runner reports a real commit, the loop adopts that sha as the
+// builder's sha so the review is checked against the HEAD the reviewer actually sees. A refusal, a
+// clean tree or a dead runner leaves the builder's own result untouched.
+function adoptCommit(b, c) {
+  return b && c && c.committed === true && /^[0-9a-f]{7,40}$/i.test(String(c.sha ?? '').trim()) ? { ...b, sha: String(c.sha).trim() } : b
 }
 
 async function commitPhase(worktree, label, phaseName, message) {
@@ -905,11 +913,11 @@ async function runTerritory(t) {
   const commitPhaseName = round === 1 ? 'Build' : 'Fix'
   let build = await agent(buildPrompt(t, round, findingsForBuild), buildOpts1)
   // lane 74 item 1: a builder that wrote and died (build === null) still leaves committed work.
-  await commitPhase(t.worktree, `commit:${t.id}:r${round}`, commitPhaseName, `chore(${t.id}): phase-end commit after ${commitPhaseName} round ${round}`)
+  build = adoptCommit(build, await commitPhase(t.worktree, `commit:${t.id}:r${round}`, commitPhaseName, `chore(${t.id}): phase-end commit after ${commitPhaseName} round ${round}`))
   if (build === null) {
     log(`${t.id}: build agent died in round ${round}, respawning once`)
     build = await agent(buildPrompt(t, round, findingsForBuild), buildOpts1)
-    await commitPhase(t.worktree, `commit:${t.id}:r${round}:respawn`, commitPhaseName, `chore(${t.id}): phase-end commit after ${commitPhaseName} round ${round} respawn`)
+    build = adoptCommit(build, await commitPhase(t.worktree, `commit:${t.id}:r${round}:respawn`, commitPhaseName, `chore(${t.id}): phase-end commit after ${commitPhaseName} round ${round} respawn`))
   }
   if (build === null) {
     log(`${t.id}: build agent died twice in round ${round}, giving up`)
@@ -954,11 +962,11 @@ async function runTerritory(t) {
     phase('Fix')
     const buildOptsN = { agentType: 'delegation:builder', model: 'sonnet', schema: BUILD, phase: 'Fix', label: `build:${t.id}:r${round}` }
     build = await agent(buildPrompt(t, round, priorFindingsPath), buildOptsN)
-    await commitPhase(t.worktree, `commit:${t.id}:r${round}`, 'Fix', `chore(${t.id}): phase-end commit after Fix round ${round}`)
+    build = adoptCommit(build, await commitPhase(t.worktree, `commit:${t.id}:r${round}`, 'Fix', `chore(${t.id}): phase-end commit after Fix round ${round}`))
     if (build === null) {
       log(`${t.id}: fix-round build agent died in round ${round}, respawning once`)
       build = await agent(buildPrompt(t, round, priorFindingsPath), buildOptsN)
-      await commitPhase(t.worktree, `commit:${t.id}:r${round}:respawn`, 'Fix', `chore(${t.id}): phase-end commit after Fix round ${round} respawn`)
+      build = adoptCommit(build, await commitPhase(t.worktree, `commit:${t.id}:r${round}:respawn`, 'Fix', `chore(${t.id}): phase-end commit after Fix round ${round} respawn`))
     }
     if (build === null) {
       log(`${t.id}: fix-round build agent died twice in round ${round}, giving up`)
@@ -1122,11 +1130,11 @@ if (!integrationWorktree) {
       phase('Seam')
       const seamFixOpts = { agentType: 'delegation:builder', model: 'sonnet', schema: BUILD, phase: 'Seam', label: `seam-fix:r${seamRound}` }
       let seamFixBuild = await agent(seamFixPrompt(integrationWorktree, integrationGate, priorFindings, seamRound), seamFixOpts)
-      await commitPhase(integrationWorktree, `commit:seam-fix:r${seamRound}`, 'Seam', `chore(seam): phase-end commit after seam fix round ${seamRound}`)
+      seamFixBuild = adoptCommit(seamFixBuild, await commitPhase(integrationWorktree, `commit:seam-fix:r${seamRound}`, 'Seam', `chore(seam): phase-end commit after seam fix round ${seamRound}`))
       if (seamFixBuild === null) {
         log(`seam: fix-round build agent died in round ${seamRound}, respawning once`)
         seamFixBuild = await agent(seamFixPrompt(integrationWorktree, integrationGate, priorFindings, seamRound), seamFixOpts)
-        await commitPhase(integrationWorktree, `commit:seam-fix:r${seamRound}:respawn`, 'Seam', `chore(seam): phase-end commit after seam fix round ${seamRound} respawn`)
+        seamFixBuild = adoptCommit(seamFixBuild, await commitPhase(integrationWorktree, `commit:seam-fix:r${seamRound}:respawn`, 'Seam', `chore(seam): phase-end commit after seam fix round ${seamRound} respawn`))
       }
       if (seamFixBuild === null) {
         log(`seam: fix-round build agent died twice in round ${seamRound}, giving up`)
