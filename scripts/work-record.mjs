@@ -1879,6 +1879,47 @@ export function closeRecord(opts = {}) {
   return { ok: true, work: record.fields.work, path: absPath, status: "closed", merge: fullMerge };
 }
 
+/**
+ * merge-check (lane 68b item 7): "accept before merge, always". The lead's merge into main is
+ * prose in skills/team-build/SKILL.md, not a script, so this read-only check sits in the helper
+ * the accept turn already runs. It reads the record as committed on the branch about to be
+ * merged (`git show <branch>:<record>`, never the working tree) and refuses unless that copy
+ * says `Status: accepted`. It writes nothing.
+ * opts: { recordPath, repoRoot?, branch, execImpl? }
+ */
+export function checkMergeReady(opts = {}) {
+  const execImpl = opts.execImpl ?? execFileSync;
+  if (!opts.recordPath) throw acceptanceError("--record is required");
+  const branch = typeof opts.branch === "string" ? opts.branch.trim() : "";
+  if (!branch || branch.startsWith("-")) throw acceptanceError("--branch is required (a branch or commit, not an option)", "branch-missing");
+  const repoRoot = path.resolve(opts.repoRoot ?? process.cwd());
+  const rel = String(opts.recordPath).replace(/\\/g, "/");
+  let text;
+  try {
+    text = String(execImpl("git", ["show", `${branch}:${rel}`], { cwd: repoRoot, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: withoutRepoLocatingGitEnv(process.env) }));
+  } catch {
+    throw acceptanceError(`cannot read ${rel} on ${branch}: refusing to merge a branch whose record is not on it`, "record-not-on-branch");
+  }
+  const record = parseRecord(text);
+  const status = record.fields.status ?? "<missing>";
+  if (status !== "accepted") {
+    throw acceptanceError(`refusing to merge ${branch}: ${rel} says Status: "${status}" there, not accepted - run accept on the branch first`, "not-accepted-for-merge");
+  }
+  return { ok: true, work: record.fields.work, branch, status: "accepted" };
+}
+
+export function parseMergeCheckArgs(argv) {
+  if (argv[0] !== "merge-check") throw acceptanceError("expected command: merge-check");
+  const opts = { command: "merge-check" };
+  const names = new Map([["--record", "recordPath"], ["--repo", "repoRoot"], ["--branch", "branch"]]);
+  for (let i = 1; i < argv.length; i += 2) {
+    const key = names.get(argv[i]);
+    if (!key || argv[i + 1] === undefined) throw acceptanceError(`unknown or incomplete option: ${argv[i]}`);
+    opts[key] = argv[i + 1];
+  }
+  return opts;
+}
+
 // ── close --closeout / sweep-origin (C1 rulings b, c) ───────────────────────────────
 
 /** A read-through fsImpl proxy whose writeFileSync is a no-op - lets `closeRecord` run every
@@ -2680,6 +2721,11 @@ export function acceptanceMain(argv = process.argv.slice(2), io = process) {
       }
       const result = closeRecord(opts);
       io.stdout.write(`${JSON.stringify(result)}\n`);
+      return 0;
+    }
+    if (argv[0] === "merge-check") {
+      const { command, ...opts } = parseMergeCheckArgs(argv);
+      io.stdout.write(`${JSON.stringify(checkMergeReady(opts))}\n`);
       return 0;
     }
     if (argv[0] === "sweep-origin") {

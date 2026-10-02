@@ -11,7 +11,7 @@ import {
   checkAcceptance, acceptRecord, acceptanceMain, isCensusFile, extractCensusSummary, extractCensusTimestamp,
   isIncompleteCensus, parseAcceptanceArgs, withdrawRecord, parseWithdrawArgs, closeRecord, parseCloseArgs,
   STRICT_FROM, MODEL_TIER_TOKENS, countedModelTiers, isStrictRecord, checkMeasureTruthRules,
-  SCRATCH_FROM, checkScratchField, closeoutRecord, WORKFLOW_FROM,
+  SCRATCH_FROM, checkScratchField, closeoutRecord, WORKFLOW_FROM, checkMergeReady, parseMergeCheckArgs,
 } from "./work-record.mjs";
 
 function codes(findings) {
@@ -2965,6 +2965,66 @@ test("closeoutRecord: L3 - a --by that does not match Lead-session: refuses all 
     // the record itself (Status:, every field) is completely untouched by the refused attempt:
     assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
   }
+});
+
+// Lane 68b item 7: "accept before merge, always". merge-check reads the record as committed on
+// the branch about to be merged and refuses unless it says Status: accepted there.
+function commitRecordOnBranch(f, branch) {
+  execFileSync("git", ["-C", f.repo, "switch", "-q", "-c", branch], { env: f.env });
+  execFileSync("git", ["-C", f.repo, "add", "-A"], { env: f.env });
+  execFileSync("git", ["-C", f.repo, "commit", "-qm", `record on ${branch}`], { env: f.env });
+}
+
+test("checkMergeReady: a branch whose record says reviewed is refused, accepted passes, the working tree is not consulted", () => {
+  const f = makeAcceptanceFixture();
+  commitRecordOnBranch(f, "reviewed-branch");
+  assert.throws(() => checkMergeReady({ repoRoot: f.repo, recordPath: f.record, branch: "reviewed-branch" }), /Status: "reviewed" there, not accepted/);
+  acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-24T10:00:00Z"), noCensusReason: "fixture", strictFrom: "2099-01-01T00:00:00Z" });
+  // Accepted in the working tree only: the committed copy on the branch is still reviewed.
+  assert.throws(() => checkMergeReady({ repoRoot: f.repo, recordPath: f.record, branch: "reviewed-branch" }), /not accepted/);
+  execFileSync("git", ["-C", f.repo, "add", "-A"], { env: f.env });
+  execFileSync("git", ["-C", f.repo, "commit", "-qm", "accept"], { env: f.env });
+  const ok = checkMergeReady({ repoRoot: f.repo, recordPath: f.record.replace(/\//g, "\\"), branch: "reviewed-branch" });
+  assert.deepEqual(ok, { ok: true, work: "wr-2026-09-23-acceptance", branch: "reviewed-branch", status: "accepted" });
+});
+
+test("checkMergeReady: a closed record, a record missing from the branch, and an option-shaped branch are all refused", () => {
+  const f = makeAcceptanceFixture();
+  commitRecordOnBranch(f, "b1");
+  assert.throws(() => checkMergeReady({ repoRoot: f.repo, recordPath: "docs/work/absent.record.md", branch: "b1" }), /cannot read docs\/work\/absent.record.md on b1/);
+  assert.throws(() => checkMergeReady({ repoRoot: f.repo, recordPath: f.record, branch: "--all" }), /--branch is required/);
+  assert.throws(() => checkMergeReady({ repoRoot: f.repo, recordPath: f.record }), /--branch is required/);
+  acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-24T10:00:00Z"), noCensusReason: "fixture", strictFrom: "2099-01-01T00:00:00Z" });
+  closeRecord({ repoRoot: f.repo, recordPath: f.record, merge: f.sha, main: "HEAD", at: "2026-09-24T10:01:00Z", now: new Date("2026-09-24T10:01:00Z") });
+  execFileSync("git", ["-C", f.repo, "add", "-A"], { env: f.env });
+  execFileSync("git", ["-C", f.repo, "commit", "-qm", "close"], { env: f.env });
+  assert.throws(() => checkMergeReady({ repoRoot: f.repo, recordPath: f.record, branch: "b1" }), /Status: "closed" there, not accepted/);
+});
+
+test("acceptanceMain: merge-check exits 1 with [not-accepted-for-merge] on a reviewed branch and 0 on an accepted one, and writes no file", () => {
+  const f = makeAcceptanceFixture();
+  commitRecordOnBranch(f, "m1");
+  const run = () => {
+    const out = [];
+    const err = [];
+    const io = { stdout: { write: (s) => out.push(s) }, stderr: { write: (s) => err.push(s) } };
+    const code = acceptanceMain(["merge-check", "--record", f.record, "--repo", f.repo, "--branch", "m1"], io);
+    return { code, out: out.join(""), err: err.join("") };
+  };
+  const before = fs.readFileSync(path.join(f.repo, f.record), "utf8");
+  const refused = run();
+  assert.equal(refused.code, 1);
+  assert.equal(refused.out, "");
+  assert.match(refused.err, /\[not-accepted-for-merge\]/);
+  assert.equal(fs.readFileSync(path.join(f.repo, f.record), "utf8"), before);
+  acceptRecord({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, now: new Date("2026-09-24T10:00:00Z"), noCensusReason: "fixture", strictFrom: "2099-01-01T00:00:00Z" });
+  execFileSync("git", ["-C", f.repo, "add", "-A"], { env: f.env });
+  execFileSync("git", ["-C", f.repo, "commit", "-qm", "accept"], { env: f.env });
+  const passed = run();
+  assert.equal(passed.code, 0);
+  assert.match(passed.out, /"status":"accepted"/);
+  assert.deepEqual(parseMergeCheckArgs(["merge-check", "--record", "r", "--branch", "b"]), { command: "merge-check", recordPath: "r", branch: "b" });
+  assert.throws(() => parseMergeCheckArgs(["merge-check", "--bogus", "x"]), /unknown or incomplete option/);
 });
 
 // L9 (C1 round 2 ruling): plain `close` (no --closeout), INCLUDING `close --dry-run`, behaves

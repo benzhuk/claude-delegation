@@ -124,8 +124,9 @@ test("bonus: the source never calls pipeline( (L-C3: not used at the territory l
 
 // ---------------------------------------------------------------------------
 // 4. every agent( call site carries both model: and agentType:, pair from the pinned
-// list of five (builder/sonnet, reviewer/opus, integrator/sonnet, runner/sonnet used
-// twice — setup and accept-prep — both pinned as the same pair).
+// list of five (builder/sonnet, reviewer/opus, integrator/sonnet, runner/sonnet used for
+// setup, accept-prep, state-read and second-host, and runner/haiku used for the per-phase
+// state-file write, lane 68 item 6).
 // ---------------------------------------------------------------------------
 
 const PINNED_PAIRS = [
@@ -133,6 +134,7 @@ const PINNED_PAIRS = [
   { agentType: "delegation:reviewer", model: "opus" },
   { agentType: "delegation:integrator", model: "sonnet" },
   { agentType: "delegation:runner", model: "sonnet" },
+  { agentType: "delegation:runner", model: "haiku" },
 ];
 
 function findAgentCallTexts(source) {
@@ -248,13 +250,24 @@ test("L-C4.8: BUILD, REVIEW, INTEGRATE, SETUP, and ACCEPT_PREP each appear as a 
 // R9: no rendered prompt contains a note-send instruction other than the prohibition.
 // ---------------------------------------------------------------------------
 
+// lane 68 item 3: the denial-handling sentence, verbatim, right before the note-send
+// prohibition in each of the six step mandates (not STATE_MANDATE, a one-file write).
+const GUARD_REPORT_SENTENCE = "If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block.";
+
+test("lane 68 item 3: the state-file mandate (a one-file write) does not carry the denial-handling sentence", () => {
+  const m = SOURCE.match(/const STATE_MANDATE =[\s\S]*?(?=\nconst |\n\/\/)/);
+  assert.ok(m, "expected to find STATE_MANDATE's declaration");
+  assert.ok(!m[0].includes("A PostToolUse guard report is a report, not a block."));
+});
+
 test("R9: every mandate constant carries the note-send prohibition", () => {
-  const mandateNames = ["BUILD_MANDATE", "REVIEW_MANDATE", "INTEGRATE_MANDATE", "SETUP_MANDATE", "ACCEPT_MANDATE"];
+  const mandateNames = ["BUILD_MANDATE", "REVIEW_MANDATE", "INTEGRATE_MANDATE", "SETUP_MANDATE", "ACCEPT_MANDATE", "SECOND_HOST_MANDATE"];
   for (const name of mandateNames) {
     const re = new RegExp(`const ${name} =[\\s\\S]*?(?=\\nconst |\\n\\/\\/)`);
     const m = SOURCE.match(re);
     assert.ok(m, `expected to find ${name}'s declaration`);
     assert.ok(/Never send peer notes\./.test(m[0]), `${name} must carry the note-send prohibition`);
+    assert.ok(m[0].includes(`${GUARD_REPORT_SENTENCE} Never send peer notes.`), `${name} must carry the denial-handling sentence right before the note-send prohibition`);
   }
 });
 
@@ -2021,7 +2034,7 @@ test("lane 67 item 3: a state write follows Build, Review, Integrate, Seam and A
   assert.ok(lastIdx("state:Build") < lastIdx("state:Review") && lastIdx("state:Review") < lastIdx("state:Integrate") && lastIdx("state:Integrate") < lastIdx("state:Seam") && lastIdx("state:Seam") < lastIdx("state:Accept"), "phases written in order");
   for (const w of writes) {
     assert.equal(w.opts.agentType, "delegation:runner");
-    assert.equal(w.opts.model, "sonnet");
+    assert.equal(w.opts.model, "haiku");
     assert.ok(w.prompt.includes("/repo/wt-integrate/docs/work/wr-x.loop-state.json"));
   }
   const afterReview = stateWriteJson(writes.find((c) => c.opts.label === "state:Review"));

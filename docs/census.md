@@ -500,6 +500,28 @@ these stalls also print alongside a "fewer than 2 lead messages in window" gaps-
 line rather than being dropped, since the lead's own message count says nothing about
 whether its subagents stalled.
 
+**Pane silent and waiting on a peer (lane 68).** Each lead `stalled` piece is then named,
+so no stall in the window is left without a cause. A piece is judged at its own start time
+against two things already in the inputs: the record's Status at that instant (the status
+of the latest `Log:` entry at or before it; `owned` is the only working state in
+`work-record.mjs`'s `STATUSES`), and the ledger. **Waiting on a peer**: the piece starts
+while the record is `owned` and the lead's slug holds an ASK to some other slug, sent inside
+the build window, that no RESULT or BLOCKED naming it with `re <id>` has answered by that
+instant; it prints `waiting on a peer <min> min from <ISO> (ASK <id> to <slug>)`. **Pane
+silent**: the piece starts while the record is `owned` and no such ASK is open; the lead's
+pane stopped writing to its transcript with work open and nobody asked for, which is what
+an Orca occlusion freeze looks like from the outside. The plugin cannot fix that freeze; it
+names it, as `pane silent <min> min from <ISO>`. The two are disjoint, a piece in neither
+(the record was not `owned`, or had no `Log:` entry yet) keeps today's `stalled` wording
+only, and a gap inside an `Agent`/`Task`/`Workflow` span is still `waiting-on-agents`. The
+clauses come after `waiting-on-agents` and any `agent <id> silent` lines, in the existing
+`; ` style, and they attribute a subset of the stalled count: the leading integer is
+unchanged and still counts every stalled piece, so `work-record.mjs`'s stall check reads
+the same number it always did. When the record's `Log:` entries cannot be read, or an
+`owned` piece needs the ledger and `--lead-slug` or `--ledger` is missing (or the slug is
+not in the ledger), the row says `stall attribution unavailable (<reason>)` rather than
+saying nothing. The Codex response-gap heuristic is not attributed.
+
 Two companion lines print beside the four: top-tier assistant messages per build (each
 one re-reads the whole context, so this is the cost driver, not the turn count alone),
 with the tokens line split into cache-read, cache-write, input and output; and notes to
