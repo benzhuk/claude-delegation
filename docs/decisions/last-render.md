@@ -9,15 +9,14 @@
 </details>
 # What is going on
 The plugin now runs the whole loop by itself: a lane goes from spec to main in one to three hours with Sonnet building and Opus reviewing, and today two lanes were led from Codex end to end, which the goal's finish line requires. Your page and the Goals page are rendered from repo files and can no longer drift. The cost still out of line is mine, and tomorrow morning's bearings check it against a 40M budget; the other open failure is stalls, two today of 3.5 and 5.3 hours, which tonight's lanes attack. Knowledge sharing between machines still does nothing and is next.
-# This session (since your tick at Wed 7:35 PM)
-- Lane 59 janitor acts merged 10:27 PM: daily safe-class reclaim, one deleter, live-pane guard, allow line per machine. One item below asks when to release and install it with notion-writing.
-- Lane 40 triage ran twice for real today: 111 notes into 29 topics, both SSH hosts reached. Two skill-text defects fixed on the way. Final delivery and acceptance tonight.
-- Three ticks read 5:51 PM: goal card gate queued behind the 10/1 census read; transcript retention is 365 days on three machines now; lane 61 opened for the hand-run baseline and the continue census.
-- Your choice (b) is live: the collector runs on Netcup every 15 minutes and lane state is read from its one file, not from notes.
-- Release 0.20.18 is on Windows, Netcup and Hetzner (installed Sep 29 about 3:28 PM NY), with the fix that stops test runs filling temp space. The Mac did not answer again; retry at the next release.
-- This page is rendered from repo files, refuses to publish while any source is uncommitted, and never drops a line you wrote unless it is saved in the history first.
-- Two lanes stalled for hours today, one at a delete prompt, one on a reviewer that never reported. Two night lanes now running make the collector ask the lead after two silent hours.
-- Knowledge sharing between machines still does nothing: 70 notes waiting, 1 read in a week. It is measured and is the next lane after tonight's.
+# This session (since your tick at Thu 5:20 PM)
+- Five lanes merged today, each Opus-approved with the full suite green on Netcup and Hetzner: 66, 64, 64b, 65 and 67.
+- 64 and 64b unwedged this page and closed round 3; 65 enforces the .claude/worktrees folder; 66 landed the fresh-host install docs.
+- 67 makes the build loop the only build route; every record now names its run.
+- Lane 68 part one merged 5:58 PM: a stale-plugin warning per pane, and inboxes register only from the main session.
+- Your B is running as lane 68b; the guard narrowing becomes lane 70 when you lift the guard for one run.
+- Two lanes merged before accept by a lead script slip; accept passed right after, and 68b makes the merge refuse it.
+- Knowledge triage is stopped on Windows until you clear its ATTENTION; steps in the item above.
 # History {toggle="true"}
 	- [Oct 1](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-10-01.md) — Ben ended the pause; the lead is now the pane skills-f, and lanes 62, 64, 65 and 66 were dispatched.
 	- [Sep 30](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-30.md) — Daily knowledge triage is accepted with a repaired census and a live proof that archived all60 selected notes; scheduled installation follows the next release.
