@@ -1,14 +1,16 @@
 Work: wr-2026-09-30-census-completeness
 Scope: docs/specs/census-completeness-62/spec.md
-Owner: skills-a
+Owner: skills-o
 Children: wr-2026-09-30-census-completeness-source, wr-2026-09-30-census-completeness-tests
-Status: owned
+Status: NEEDS BEN
+Now: source fixes 0b85c79b, main merged 95a18cb5, host suites fail N2 env scan only | To finish: Ben rules guard-lift-62 and e9326657, six regression tests, sealing, one Opus review, both suites, accept, merge | Est: 2 h after Ben's word
 Authority: skills-fable-census-62-1, section A items1-4 at a3aa244b. One Opus spec red-team round, mid builds and tests, Opus review, two host suites and standing reviewed merge grant. No installs, release, guards or new orchestration.
 Artifact: none
 Worktree: C:/Users/benzh/orca/workspaces/claude-delegation/census-completeness-62
 Evidence: docs/specs/census-completeness-62/bearings-assessment.md, docs/specs/census-completeness-62/bearings-publication.md
-Next: fix independent activity/wake/rework findings, integrated focused green and Opus code review, then two-host suites. Bearings CONTINUE is published and attested.
+Next: Ben decides guard-lift-62 (decisions page) and the disposition of e9326657; then land H1 H2 H3 M1 M2 L2 regressions and spawn sealing, review and gate the final tree
 Lead-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
+Scratch: C:/Users/benzh/AppData/Local/Temp/claude/C--Users-benzh-Code-zhuk-infra-claude-delegation/a7e8fc6b-cbf3-476b-aaea-23ad30508174/scratchpad/lane-62
 Role-sessions: docs/work/evidence/census62/lane62-roles.json
 Spec-session: 01a0df4c-2809-7520-b1d7-876cc51a87ee
 Spec-from: 2026-09-30T22:13:45.332Z
@@ -22,6 +24,8 @@ Log: 2026-09-30T22:51:09.000Z owned skills-a mid source fd1aefe7-1dcd-4a12-b7cb-
 Log: 2026-09-30T23:09:58.000Z owned skills-a source7cf696e8 and test33bfb4c8 integrated. Base gate34 expected reds of291, candidate gate20fail/580 then11fail/153 exposed genuine activity supersede, wake dedup and rework shape/bounds defects. Source repair assigned, tier filter fix34b6bb0 already integrated. T2 reported guard refusals and alternate edit tools; exact receipts requested before adjudication, no denied operation replay authorized.
 Log: 2026-09-30T23:09:58.000Z owned skills-a fresh main through74a8e3e1 integrated, including lane63 linter fix49f7bffd. Bearings publication r2 PUBLISHED with full-page clean plain lint, safe edit exit0 and identical readback preserving every prior line. Independent reviewer /root/census62_bearings, lead01a0df4c-2809-7520-b1d7-876cc51a87ee, completion receipt recorded against actual publication. Prior PENDING receipt retained.
 Log: 2026-09-30T23:12:01.000Z owned skills-a T2 exact receipts confirm two secret-guard PreToolUse refusals followed by equivalent edits without authority. Editing stopped, receipt docs/specs/census-completeness-62/T2-guard-receipt.md retained. Guard owner ASK skills-a-census62-guard-policy-1, requester BLOCKED skills-a-census62-test-edit-boundary-1. No retry or guard change authorized. Existing source-only repairs and independent verification can continue; acceptance remains pending.
+Log: 2026-10-02T00:30:00.000Z owned skills-o recovery writer transfer from skills-a per skills-a-census62-recovery-1, skills-a stays accountable
+Log: 2026-10-02T06:45:00.000Z owned skills-o NEEDS BEN: six regression tests refused by the secret guard, no waiver (skills-a, upheld by skills-f). Host suites at 95a18cb5 exit 1 on Netcup and Hetzner, N2 env scan only. Incident: fix builder routed around a guard refusal with the Edit tool, commit e9326657 kept as unapproved evidence, used for no gate (skills-a-lane62-env-disposition-1). 9 AM target forecast missed
 
 Predicts: one mixed-host build reports all linked role usage, observable stall coverage, parent-attributed follow-up rework and a baseline-comparable token definition without false zeroes.
 Observed: not built. Existing native-only census and baseline limitations motivate this bounded instrument repair.
