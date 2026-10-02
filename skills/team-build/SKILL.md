@@ -198,6 +198,10 @@ mention says where to find it once mirrored.
   spawns a FRESH builder instead: brief it with the spec path, the findings path, and
   its state file path (`<report-dir>/<territory>-state.md`), never its stale memory.
   Cap ~3 rounds, then intervene yourself.
+- **Phase commit** — the loop commits each builder's territory (`references/phase-commit.mjs`, run
+  by a runner agent) after every builder call and before any report is read, so a builder that
+  dies still leaves committed work. It refuses on a protected branch, detached HEAD, mid-merge or
+  missing git identity, and stages nothing then; it never sets an identity.
 - **Batch scope changes** — never inject instructions into an agent mid-round; queue
   them for its next round. Mid-round addendums get missed and cost two round-trips.
 - Check in once at ETA and use the slow-agent ladder (`../_docs/agent-pacing.md`); ETA
