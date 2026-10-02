@@ -4,7 +4,7 @@
 	Agents today decide on their own when to ask you. Proposal: three classes in the decisions skill, and every item for you carries a default and a time.
 	- [ ] Yours: the aim and measures, money, machines, anything irreversible, anything that changes a rule you set. Lead's: lane rulings, ordering, scope inside a ruling. Automatic: anything a script checks. Default fires at the stated time unless you tick (recommended)
 	- [ ] Same classes, but nothing defaults: every item waits for your tick
-	- [ ] You write the classes as  lines
+	- [ ] You write the classes as comment lines on this item
 	Default after 2026-10-03 12:00 -04:00: the first option
 	<empty-block/>
 </details>
@@ -16,7 +16,7 @@
 	A COMPONENTS table of ten lines, in your plan order.
 	The card gains MEASURE and COMPONENTS lines, and its cap moves from 1,200 to 1,600 bytes.
 	- [ ] Apply v6 as drafted (recommended)
-	- [ ] Apply with changes, I write them as  lines
+	- [ ] Apply with changes, I write them as comment lines on this item
 	No default: the card is your goal statement
 	<empty-block/>
 </details>
@@ -25,7 +25,7 @@
 	The four measures are about the harness. Nothing scores what a build produced beyond rework within 7 days.
 	- [ ] Add it: the Opus reviewer gives every accepted build a quality score against its spec, the census reads it, the card shows it (recommended)
 	- [ ] Rework after acceptance is enough
-	- [ ] You define quality in  lines
+	- [ ] You define quality in comment lines on this item
 	No default: it changes the aim
 	<empty-block/>
 </details>
