@@ -6,13 +6,16 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { makeTempHome } from "./test-home.mjs";
 import { checkReport, parseFirstLine, parseProgressLine, parseProgressValue } from "./report-check.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT = path.join(HERE, "report-check.mjs");
 const FIX = path.join(HERE, "fixtures", "report-states-73");
 const fixture = (name) => path.join(FIX, name);
-const runCli = (p) => spawnSync(process.execPath, [SCRIPT, p], { encoding: "utf8" });
+// Sealed child environment (never the runner's own): the CLI needs no home, but no child inherits it.
+const SEALED = makeTempHome();
+const runCli = (p) => spawnSync(process.execPath, [SCRIPT, p], { encoding: "utf8", env: SEALED.env });
 
 test("report-check: DONE with every step done passes with no line 2", () => {
   const r = runCli(fixture("report-done.md"));
@@ -92,7 +95,7 @@ test("report-check: owner spelling and peer slug shape", () => {
 
 test("report-check: empty file, missing path and no argument are exit 1", () => {
   assert.equal(checkReport("").ok, false);
-  assert.equal(spawnSync(process.execPath, [SCRIPT], { encoding: "utf8" }).status, 1);
+  assert.equal(spawnSync(process.execPath, [SCRIPT], { encoding: "utf8", env: SEALED.env }).status, 1);
   assert.equal(runCli(path.join(FIX, "does-not-exist.md")).status, 1);
 });
 
