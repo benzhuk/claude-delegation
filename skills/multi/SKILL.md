@@ -294,13 +294,13 @@ sessions:** run it at the start of every turn.
 ```
 note-send --from <your-slug> --to <peer-slug|term_handle|ben> --kind ASK \
   --topic pr132-review --text "Please review PR #132, focus on the batch scheduler" \
-  --goal "land it before the corpus run" --details docs/notes/taxonomy-pr132-review-1.md \
+  --goal "land it before the corpus run" \
   --needs review --by 15:00 --packet-file -
 ```
 
 `--packet-file <path|->` writes the detail packet to the recipient's
 `~/.agents/notes/packets/<repo-name>/<id>.md` (outside every checkout) before the ledger line and uses
-`.agents/notes/packets/<repo-name>/<id>.md` as `Details` when no explicit `--details` was supplied; `-` reads the body from stdin. An existing
+`.agents/notes/packets/<repo-name>/<id>.md` as `Details`, so do not pass `--details` with it (a `--details` naming anywhere else is refused); `-` reads the body from stdin. An existing
 packet is never overwritten without `--force`, because the recipient may have annotated it.
 Add `--dry-run` to see the exact line and every planned write without touching anything, or
 `--no-type` to record and queue without resolving a pane at all.

@@ -680,15 +680,16 @@ test('packet-file derives Details from the resolved id and the recipient inbox r
   assert.equal(inbox.notes[0].packetExists, true);
 });
 
-test('packet-file derives the same Details in dry-run and preserves an explicit Details reference', async () => {
+test('packet-file derives the same Details in dry-run and refuses an explicit Details that names another place', async () => {
   const repo = tmp(); const home = tmp(); const src = path.join(tmp(), 'packet.md');
   fs.writeFileSync(src, '# packet\n');
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
   const dry = await runNoteSend(ARGS_OK(['--packet-file', src, '--dry-run', '--recipient-repo', repo]), { orca, home, git: () => '.git', now: NOW, env: TYPING });
   assert.equal(parseEnvelope(dry.envelope).details, packetDetailsFor(repo, 'taxonomy-ping-1'));
-  const explicit = await runNoteSend(ARGS_OK(['--packet-file', src, '--details', 'docs/notes/separate.md']), { orca, home, git: () => '.git', now: NOW, env: TYPING });
-  assert.equal(parseEnvelope(explicit.envelope).details, 'docs/notes/separate.md', 'an explicit legacy Details is still carried verbatim');
-  assert.equal(explicit.packetPath, packetPathFor(repo, 'taxonomy-ping-1', home));
+  await rejectsWith(runNoteSend(ARGS_OK(['--packet-file', src, '--details', 'docs/notes/separate.md']), { orca, home, git: () => '.git', now: NOW, env: TYPING }), 1, /does not name the packet/);
+  assert.equal(fs.existsSync(packetPathFor(repo, 'taxonomy-ping-1', home)), false, 'nothing is written when the Details is refused');
+  const same = await runNoteSend(ARGS_OK(['--packet-file', src, '--details', packetDetailsFor(repo, 'taxonomy-ping-1')]), { orca, home, git: () => '.git', now: NOW, env: TYPING });
+  assert.equal(same.packetPath, packetPathFor(repo, 'taxonomy-ping-1', home), 'an explicit Details equal to the derived one is accepted');
 });
 
 test('v3: --packet-file - reads the body from stdin (the ssh form)', async () => {

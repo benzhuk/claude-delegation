@@ -731,11 +731,14 @@ export async function runNoteSend(argv, deps = {}) {
   if (!Number.isInteger(n) || n < 1) throw new NoteError(1, `--n must be a positive integer (got "${args.n}")`);
   const id = args.id ? validateId('id', args.id) : `${prefix}-${n}`;
   const packetPath = args['packet-file'] !== undefined ? packetPathFor(targetRepo, id, home, env) : null;
-  // A packet is useful only if the ledger points the recipient to it. Explicit --details remains a
-  // caller-controlled reference; without it, derive the exact packet path from the resolved id once.
-  const details = args.details
-    ? validateDetails(args.details)
-    : (packetPath ? validateDetails(packetDetailsFor(targetRepo, id)) : undefined);
+  // A packet is useful only if the ledger points the recipient to it. With --packet-file the Details is
+  // always derived from the resolved id; an explicit --details that names anywhere else is refused before
+  // any packet or ledger write, so the line never points at a packet that was not written there.
+  const derivedDetails = packetPath ? validateDetails(packetDetailsFor(targetRepo, id)) : undefined;
+  if (args.details && packetPath && validateDetails(args.details) !== derivedDetails) {
+    throw new NoteError(1, `--details ${args.details} does not name the packet --packet-file writes (${derivedDetails}); drop --details, a packet's Details is derived`);
+  }
+  const details = args.details ? validateDetails(args.details) : derivedDetails;
 
   const toSlug = isBen ? RESERVED_RECIPIENT : recipientSlug(pane, toRaw, bindings);
   const envelope = buildEnvelope({
