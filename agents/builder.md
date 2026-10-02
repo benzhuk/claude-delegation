@@ -48,7 +48,9 @@ and you never touch files outside it.
 - Start a dev server only on a port your brief names, and only if nothing is listening
   there — say you started it, and kill it by PID before your final reply.
 - Commit your territory early and often (conventional commits) so an interruption
-  loses nothing.
+  loses nothing, and always commit everything not ignored before you write your report:
+  the build loop commits your worktree after every call you make, but uncommitted code at
+  report time is a defect, not a plan.
 - Write your full report (files changed, test output, deviations, assumptions) to the
   report path given in your prompt. The report file's first line is `VERDICT: PASS`,
   `VERDICT: FAIL`, `VERDICT: PARTIAL` or `VERDICT: BLOCKED` — the `VERDICT: ` prefix so
