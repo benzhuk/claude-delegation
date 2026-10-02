@@ -127,6 +127,8 @@ import { pathEscapesRoot } from "./path-safety.mjs";
 import { checkWiring } from "./wiring-check.mjs";
 import { listRecords } from "./work-record.mjs";
 import { withoutRepoLocatingGitEnv } from "../skills/multi/scripts/transport.mjs";
+// Lane 74: the multi-root sweep lives in its own modules; this file only wires it in (see runSweepIfWanted).
+import { runSweep, formatSweep, loadSweepPolicy, defaultRoots } from "./janitor-sweep.mjs";
 // Finding 1 (review round 1): idleHours' Codex-session widening needs the same "where Codex lives"
 // list the mirror script already uses, rather than a second, drifting copy of it.
 import { codexHomes } from "./codex-hook-trust.mjs";
@@ -2211,7 +2213,36 @@ function parseFlags(argv, home) {
  * and the home `applySafe`'s idle check reads; defaults to the real `os.homedir()` (read at call time, so
  * a test that sets HOME/USERPROFILE still works), and a test passes a fixture dir so nothing real is touched.
  */
-export function main(argv = process.argv.slice(2), { cwd = process.cwd(), now, applyImpl = applySafe, home = os.homedir() } = {}) {
+/**
+ * Lane 74 (items 2, 3, 5 report part, 7): the multi-root sweep, DISPLAY ONLY as far as the exit code
+ * and the existing report are concerned. Runs when --sweep is given or when `<home>/.agents/janitor-
+ * policy.json` exists; otherwise a run is byte-for-byte what it was. Never throws (fail open).
+ * `sweepOpts` is the test seam: { roots, tmpScratch, varTmp, reclaim }. Without `roots`, the default
+ * root list is built from `home` (and, only when `home` IS the real home, the real Temp and /var/tmp).
+ */
+function runSweepIfWanted({ argv, home, applyRequested, actSwitchedOff, now, sweepOpts, mainBranch }) {
+  try {
+    const policy = loadSweepPolicy(home);
+    if (!argv.includes("--sweep") && !policy.present) return null;
+    const real = path.resolve(home) === path.resolve(os.homedir());
+    const roots = sweepOpts.roots || policy.roots || defaultRoots({
+      home,
+      tmpScratch: sweepOpts.tmpScratch ?? (real ? path.join(os.tmpdir(), "claude") : path.join(home, "tmp-scratch")),
+      varTmp: sweepOpts.varTmp ?? (real && process.platform !== "win32" ? "/var/tmp" : null),
+    });
+    const apply = Boolean(applyRequested && !actSwitchedOff);
+    const nowMs = typeof now === "number" ? now : Date.now();
+    const result = runSweep({
+      home, roots, apply, policy, nowMs, mainBranch, reclaim: sweepOpts.reclaim || null,
+      deps: { listWorktrees, listRecords, idleHours, pathHasOpenProcess: worktreeHasOpenProcess, fetchOrigin },
+    });
+    return { result, apply, policy, text: formatSweep(result, { apply, policy }) };
+  } catch (err) {
+    return { result: null, text: `SWEEP: skipped (${String(err && err.message ? err.message : err)})` };
+  }
+}
+
+export function main(argv = process.argv.slice(2), { cwd = process.cwd(), now, applyImpl = applySafe, home = os.homedir(), sweepOpts = {} } = {}) {
   let startedApplying = false;
   const applyLog = [];
   try {
@@ -2310,6 +2341,9 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd(), now, a
     // try/catch is needed here.
     const outsideRows = outsideFlag ? gatherOutside() : null;
 
+    // Lane 74: after applySafe (so a SAFE removal is already done) and before the report prints.
+    const sweep = runSweepIfWanted({ argv, home, applyRequested: applyFlag, actSwitchedOff, now, sweepOpts, mainBranch: config.main_branch || "main" });
+
     if (jsonFlag) {
       console.log(
         JSON.stringify(
@@ -2321,6 +2355,7 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd(), now, a
             summary: summarizeCounts(state),
             wiring,
             outside: outsideRows,
+            ...(sweep ? { sweep: sweep.result ? { rows: sweep.result.rows, repos: sweep.result.repos, owned: sweep.result.owned } : { skipped: sweep.text } } : {}),
             act,
             applied: applyFlag ? applyLog : null,
           },
@@ -2330,6 +2365,10 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd(), now, a
       );
     } else {
       printReport(state, wiring, outsideRows, actSwitchedOff);
+      if (sweep) {
+        console.log("");
+        console.log(sweep.text);
+      }
       if (applyFlag) {
         console.log("");
         console.log("APPLIED:");
