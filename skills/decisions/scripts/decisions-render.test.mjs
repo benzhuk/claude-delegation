@@ -1103,7 +1103,7 @@ test('Bearings toggle: decision, condition, next action, prediction with its che
   assert.match(block[4], /^\tPrediction, check 10\/2 3:00 PM: origin main holds the window read/);
   assert.equal(
     block[5],
-    '\tLinks: [Goals page](https://www.notion.so/3e3da11277a1813cb326c42ed97a1d5d), '
+    '\tLinks: [Goals page](https://app.notion.com/p/3e3da11277a1813cb326c42ed97a1d5d), '
     + `[assessment](${REPO_BLOB_BASE}/docs/work/evidence/2026-10-01-bearings-assessment.md), `
     + `[response](${REPO_BLOB_BASE}/docs/work/evidence/2026-10-01-bearings-response.md).`,
   );

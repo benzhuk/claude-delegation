@@ -50,7 +50,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Normalisation — spec: "CRLF to LF, strip trailing whitespace per line, collapse runs of blank
-// lines to one, drop a blank separator after a structural closing `</details>`, drop one
+// lines to one, drop a blank separator after a structural closing `</details>` (also tab-indented), drop one
 // trailing `<empty-block/>`; and, from the observed Notion readback probe, one backslash before
 // exactly `*`, `[`, `]`, backtick, `~`, `>`, `|`, or `<`; nothing else". The details exception
 // never applies inside fenced literals; observed escape equivalence never applies inside fenced
@@ -134,8 +134,11 @@ export function normalize(text) {
     } else if (!fence) {
       inlineDelimiter = null;
     }
-    if (!fence && l === '<details>') detailsDepth += 1;
-    const isStructuralDetailsClose = !fence && detailsDepth > 0 && l === '</details>';
+    // Lane 72 nests the Waiting items in a toggle, so their tags arrive tab-indented; Notion drops
+    // the blank separator after an indented structural close exactly as after a column-0 one.
+    const tag = l.replace(/^\t+/, '');
+    if (!fence && tag === '<details>') detailsDepth += 1;
+    const isStructuralDetailsClose = !fence && detailsDepth > 0 && tag === '</details>';
     const isBlank = l === '';
     if (isBlank && detailsSeparatorPending) {
       continue;
