@@ -1212,6 +1212,7 @@ test('C5: a raw handle target never addresses an inbox - a guessed slug is not a
 test('C9: a registered inbox needs no pane, so no orca call is made at all', async () => {
   const home = tmp();
   let orcaCalls = 0;
+  fs.mkdirSync(path.join(home, '.git')); // lane 68: a registered cwd must be a git checkout to be used
   writeInbox(home, 'nucleus', claudeRecord({ cwd: home }), { now: NOW });
   const res = await runNoteSend(SEND_ARGS, {
     home, git: () => '.git', now: NOW, env: {},
@@ -1227,6 +1228,7 @@ test('C9: a registered inbox needs no pane, so no orca call is made at all', asy
 
 test('C11: an interactive send bounds its own inbox post', async () => {
   const home = tmp();
+  fs.mkdirSync(path.join(home, '.git')); // lane 68: a registered cwd must be a git checkout to be used
   writeInbox(home, 'nucleus', codexRecord({ cwd: home }), { now: NOW });
   let budget = null;
   await runNoteSend(SEND_ARGS, {
@@ -1330,6 +1332,7 @@ test('N5: a recipient cwd we cannot reach warns instead of quietly using the sen
 
 test('N5: a recipient that registered a real cwd is not warned about', async () => {
   const home = tmp();
+  fs.mkdirSync(path.join(home, '.git')); // lane 68: a registered cwd must be a git checkout to be used
   writeInbox(home, 'nucleus', claudeRecord({ cwd: home }), { now: NOW });
   const res = await runNoteSend(SEND_ARGS, {
     home, now: NOW, env: {}, git: () => '.git', orca: forbiddenOrca(),

@@ -1289,7 +1289,39 @@ test("P7: --hook keeps exit 0 while stale, but the line still prints (same rule 
   const scriptPath = staleFixture(home, { running: "0.20.9", installedVersions: ["0.20.16"] });
   const { code, out } = runMainCapturing(["--line", "--hook"], { home, scriptPath });
   assert.equal(code, 0);
+  // Lane 68 item 1: --hook prints the one-line restart advisory, not the long stale-session text.
+  assert.match(out, /^plugin 0\.20\.9 running, 0\.20\.16 installed: restart this pane$/m);
+  assert.doesNotMatch(out, /stale session: /);
+  assert.equal(out.split(/\r?\n/).filter((l) => l.startsWith("plugin ")).length, 1, "exactly one advisory line");
+});
+
+test("lane 68: --hook is silent about staleness when not stale, and when ~/.agents/ws-off is present", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const fresh = staleFixture(home, { running: "0.20.16", installedVersions: ["0.20.16"] });
+  const a = runMainCapturing(["--line", "--hook"], { home, scriptPath: fresh });
+  assert.equal(a.code, 0);
+  assert.doesNotMatch(a.out, /restart this pane|stale session/);
+
+  const home2 = mkHome();
+  write(home2, ".agents/lean-rules.md", "# lean rules\n");
+  write(home2, ".agents/ws-off", "");
+  wireEverythingElse(home2);
+  const stale = staleFixture(home2, { running: "0.20.9", installedVersions: ["0.20.16"] });
+  const b = runMainCapturing(["--line", "--hook"], { home: home2, scriptPath: stale });
+  assert.equal(b.code, 0);
+  assert.equal(b.out, "", "ws-off silences the advisory");
+});
+
+test("lane 68: bare --line keeps the long stale-session text (only --hook changed)", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = staleFixture(home, { running: "0.20.9", installedVersions: ["0.20.16"] });
+  const { out } = runMainCapturing(["--line"], { home, scriptPath });
   assert.match(out, /^stale session: /m);
+  assert.doesNotMatch(out, /restart this pane/);
 });
 
 test("P7: not stale (running equal to the installed entry) prints nothing extra and the exit stays green", () => {

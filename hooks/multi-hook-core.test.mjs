@@ -463,15 +463,23 @@ test('D3: an unknown event is silence, not a crash', async () => {
 
 const THREAD = '01a0b193-d533-7360-be08-b82b41f19b3d';
 
+// Lane 68: registration needs a cwd inside a git checkout; a bare .git directory is all the walk-up reads.
+function checkout() {
+  const dir = tmp();
+  fs.mkdirSync(path.join(dir, '.git'));
+  return dir;
+}
+
 test('D2: the payload session_id becomes the thread id the queue is addressed by', async () => {
   const home = tmp();
+  const repo = checkout();
   await runCodexHook(
-    { hook_event_name: 'UserPromptSubmit', cwd: '/repo', session_id: THREAD },
+    { hook_event_name: 'UserPromptSubmit', cwd: repo, session_id: THREAD },
     { home, env: { NOTE_SLUG: 'astra', CODEX_HOME: '/orca/home-a' }, inbox: async () => resultOf([]), now: NOW },
   );
   const reg = readInboxes(home);
   assert.deepEqual(reg.astra, {
-    kind: 'codex-queue', at: NOW, pid: reg.astra.pid, cwd: '/repo', host: os.hostname(),
+    kind: 'codex-queue', at: NOW, pid: reg.astra.pid, cwd: repo, host: os.hostname(),
     codexHome: '/orca/home-a', threadId: THREAD,
   });
 });
@@ -479,7 +487,7 @@ test('D2: the payload session_id becomes the thread id the queue is addressed by
 test('D2: no CODEX_HOME in the environment falls back to ~/.codex, as codex itself does', async () => {
   const home = tmp();
   await runCodexHook(
-    { hook_event_name: 'Stop', cwd: '/repo', session_id: THREAD },
+    { hook_event_name: 'Stop', cwd: checkout(), session_id: THREAD },
     { home, env: { NOTE_SLUG: 'astra' }, inbox: async () => resultOf([]), now: NOW },
   );
   assert.equal(readInboxes(home).astra.codexHome, `${home}/.codex`);

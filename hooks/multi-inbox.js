@@ -223,7 +223,7 @@ async function registerMyInbox(cwd, sessionId, transcriptPath) {
     if (!record) return { slug, result: null, configBroken: false };
     // D3: the same-sessionId sweep (moving an old slug's entry to this new one) lives inside
     // transport.registerInbox itself now, so a rename is atomic no matter which caller triggers it.
-    return { slug, result: transport.registerInbox(transport.toPosix(home), slug, record), configBroken: false };
+    return { slug, result: transport.registerMainSessionInbox(transport.toPosix(home), slug, record), configBroken: false };
   } catch {
     return { slug, result: null, configBroken: false }; // rule 1: never throw out of a hook
   }
@@ -261,7 +261,7 @@ async function main() {
   // is the host's positive child signal (as in delegation-reminder.js); absence says nothing about other hosts.
   // Keep this immediately after parsing so no identity lookup or hook branch can create a registry,
   // cursor, stamp, or binding side effect first.
-  if (typeof input.agent_id === "string" && input.agent_id.length > 0) return;
+  if (input.agent_id != null && input.agent_id !== "") return; // any non-empty agent_id, whatever its type
   // lane 53 decision 2(a): a review-run child (claude -p --agent, main thread, no agent_id)
   // must never register either — same rule, the marker it runs under instead of agent_id.
   // finding 12: a session whose env carries DELEGATION_REVIEW_RUN=1 is never registered and
