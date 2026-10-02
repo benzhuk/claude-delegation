@@ -18,8 +18,53 @@ import { withoutRepoLocatingGitEnv } from "../skills/multi/scripts/transport.mjs
 // inside function bodies, at call time, well after both modules finish evaluating.
 import { closeoutWorktree, isRemoteBranchMergedIntoOrigin, listWorktrees } from "./janitor.mjs";
 import { checkRemovablePath } from "./path-safety.mjs";
+import { parseProgressValue } from "./report-check.mjs";
 
 export const STATUSES = ["runnable", "owned", "delivered", "rejected", "reviewed", "accepted", "closed", "blocked", "withdrawn"];
+// Lane 73 (report-states-73, spec item 2): the lane-record Status words. STATUSES above stays the
+// full set a record may be READ with (old words stay readable; closed records are never
+// rewritten). The lane words are open, NEEDS BEN, NEEDS <peer slug>, FAILED, accepted, closed;
+// NEEDS <peer slug> is a pattern, not a list entry. accept and merge-check refuse any word
+// outside GATE_STATUS_WORDS: the lane words plus `reviewed`, the one pre-accept state accept
+// consumes (docs/work-record.md).
+export const LANE_STATUS_WORDS = ["open", "NEEDS BEN", "NEEDS <peer slug>", "FAILED", "accepted", "closed"];
+export const GATE_STATUS_WORDS = [...LANE_STATUS_WORDS, "reviewed"];
+const LANE_PEER_RE = /^NEEDS [a-z0-9][a-z0-9-]{0,63}$/;
+export function isLaneStatusWord(status) {
+  return typeof status === "string"
+    && (["open", "FAILED", "NEEDS BEN", "accepted", "closed"].includes(status) || (LANE_PEER_RE.test(status) && status !== "NEEDS ben"));
+}
+export function isKnownStatus(status) {
+  return STATUSES.includes(status) || isLaneStatusWord(status);
+}
+function isGateStatusWord(status) {
+  return isLaneStatusWord(status) || status === "reviewed";
+}
+// Lane 73: a record opened on/after this instant (midnight America/New_York, 10/2, before any
+// post-lane-73 record exists) must carry `Now: <one line> | To finish: <one line> | Est:
+// <duration>` while it is not terminal; every earlier record is grandfathered, the same way
+// ACCEPTED_WITHOUT_CHECK_CUTOFF grandfathers history. `opts.progressFrom` is for tests only.
+export const PROGRESS_LINE_FROM = "2026-10-02T04:00:00Z";
+const PROGRESS_EXEMPT_STATUSES = new Set(["accepted", "closed", "withdrawn"]);
+// -> { code, message } | null. A Now: line that is present must always have the exact shape;
+// an absent one is refused only for a non-terminal record opened on/after PROGRESS_LINE_FROM.
+export function checkProgressLine(record, opts = {}) {
+  const fields = record.fields ?? {};
+  const progress = typeof fields.progress === "string" ? fields.progress.trim() : "";
+  const shape = "`Now: <one line> | To finish: <one line> | Est: <duration>`";
+  if (progress) {
+    return parseProgressValue(progress)
+      ? null
+      : { code: "missing-field", message: `malformed Now: line "${progress}": expected ${shape}` };
+  }
+  if (fields.opened === undefined || PROGRESS_EXEMPT_STATUSES.has(fields.status)) return null;
+  const from = opts.progressFrom ?? PROGRESS_LINE_FROM;
+  if (Date.parse(fields.opened) < Date.parse(from)) return null;
+  return {
+    code: "missing-field",
+    message: `missing required field: Now: (${shape}; required on a non-terminal record opened on/after ${from})`,
+  };
+}
 // R2 (withdraw-status-1): the only statuses `withdrawRecord` may withdraw FROM. `withdrawn`
 // itself is terminal and one-way - never in this set, never reachable a second time, never
 // reachable from `accepted`.
@@ -37,7 +82,7 @@ export const REQUIRED_FIELDS = ["work", "scope", "owner", "status", "authority",
 // eight-role pinned sentence. Optional here (validateRecord/parseRecord parse it like any other
 // singleton) so an old record without one still parses cleanly; the refusal/warning split lives
 // in checkScratchField below, called from both validateRecord and checkAcceptance.
-export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "artifactRepo", "worktree", "leadSession", "specSession", "specFrom", "base", "supersededBy", "scratch", "workflow", "measure", "roleSessions", "followUpOf"];
+export const OPTIONAL_FIELDS = ["children", "builder", "rounds", "class", "artifactRepo", "worktree", "leadSession", "specSession", "specFrom", "base", "supersededBy", "scratch", "workflow", "measure", "roleSessions", "followUpOf", "progress"];
 export const FINDING_CODES = [
   "missing-field", "bad-status", "bad-work-id", "accepted-without-artifact", "accepted-without-evidence",
   "evidence-missing", "evidence-no-verdict", "stale-result-candidate", "scope-drift", "workaround-overdue",
@@ -94,6 +139,10 @@ const FIELD_LABELS = [
   // lane62: optional singletons. Role-sessions names a repo-relative role manifest (detached sessions
   // build-census counts with --record); Follow-up-of names the parent Work id (four-read rework link).
   ["roleSessions", "Role-sessions"], ["followUpOf", "Follow-up-of"],
+  // lane 73 (report-states-73): `Now: <one line> | To finish: <one line> | Est: <duration>`, the
+  // same line a progress report carries as its line 2 (report-check.mjs). The header value is
+  // everything after `Now:`, so the stored field reads `<one line> | To finish: ... | Est: ...`.
+  ["progress", "Now"],
 ];
 const LIST_FIELDS = new Set(["evidence", "children"]);
 // "census" (C2, "acceptance requires the census"): a repeatable header line, same shape
@@ -172,12 +221,21 @@ export function checkScratchField(record, opts = {}) {
 // CLI flag moves it, `opts.workflowFrom` is for tests only.
 export const WORKFLOW_FROM = "2026-10-01T00:00:00Z";
 
-// opts: { workflowFrom? } -> { refusal: { code, message } | null, warning: string | null }.
+// lane 73 (F1): from this instant on (judged on the record's own Spec-from:, same discipline as
+// WORKFLOW_FROM), a `Workflow:` value that names a run must carry `maxRounds=<n>`, the loop's
+// round bound actually used (accept-prep writes it). No CLI flag moves it; `opts.maxRoundsFrom`
+// is for tests only. A record already accepted is never re-checked by this, since only accept
+// and check-acceptance call checkWorkflowField.
+export const MAXROUNDS_FROM = "2026-10-02T03:00:00Z";
+
+// opts: { workflowFrom?, maxRoundsFrom? } -> { refusal: { code, message } | null, warning: string | null }.
 // Used by checkAcceptance (and therefore accept and accept-prep's check-acceptance step).
 // - Present and `<run id>` or `none, <reason>`: fine at any date.
 // - Present as a bare `none` (no reason): `workflow-invalid` at any date.
 // - Absent: `workflow-missing` when Spec-from: is parseable AND on or after workflowFrom;
 //   any other record without the line gets a warning only.
+// - Present and naming a run (not `none, <reason>`) with no `maxRounds=<n>` token: `workflow-maxrounds-missing`
+//   when Spec-from: is parseable AND on or after maxRoundsFrom; older records are not refused.
 export function checkWorkflowField(record, opts = {}) {
   const workflowFrom = opts.workflowFrom ?? WORKFLOW_FROM;
   const workflowFromMs = Date.parse(workflowFrom);
@@ -188,6 +246,20 @@ export function checkWorkflowField(record, opts = {}) {
         refusal: { code: "workflow-invalid", message: `Workflow: "${workflow}" must be a run id, or "none, <reason>" saying why the build-loop Workflow was not used` },
         warning: null,
       };
+    }
+    if (!/^none\b/i.test(workflow) && !/(^|\s)maxRounds=\d+(\s|$)/.test(workflow)) {
+      const maxRoundsFrom = opts.maxRoundsFrom ?? MAXROUNDS_FROM;
+      const maxRoundsFromMs = Date.parse(maxRoundsFrom);
+      const specMs = Date.parse(record.fields.specFrom ?? "");
+      if (!Number.isNaN(specMs) && !Number.isNaN(maxRoundsFromMs) && specMs >= maxRoundsFromMs) {
+        return {
+          refusal: {
+            code: "workflow-maxrounds-missing",
+            message: `Workflow: "${workflow}" names a run but carries no maxRounds=<n>, and Spec-from: (${record.fields.specFrom}) is on or after MAXROUNDS_FROM (${maxRoundsFrom}); set it to "<run id> maxRounds=<n>" (accept-prep writes this)`,
+          },
+          warning: null,
+        };
+      }
     }
     return { refusal: null, warning: null };
   }
@@ -310,13 +382,16 @@ export function validateRecord(record, opts = {}) {
     }
   }
 
-  if (fields.status !== undefined && !STATUSES.includes(fields.status)) {
+  if (fields.status !== undefined && !isKnownStatus(fields.status)) {
     findings.push({
       code: "bad-status",
       level: "finding",
-      message: `status "${fields.status}" is not one of ${STATUSES.join(", ")}`,
+      message: `status "${fields.status}" is not one of ${STATUSES.join(", ")} (or open, NEEDS BEN, NEEDS <peer slug>, FAILED)`,
     });
   }
+
+  const progressProblem = checkProgressLine(record, { progressFrom: opts.progressFrom });
+  if (progressProblem) findings.push({ code: progressProblem.code, level: "finding", message: progressProblem.message });
 
   if (fields.status === "runnable" && fields.owner !== undefined && fields.owner !== "" && fields.owner !== "none") {
     findings.push({
@@ -1015,7 +1090,7 @@ function requireObservedBody(text) {
   throw acceptanceError("record body requires a nonempty Observed: top-level paragraph at body start, after a blank line, or immediately after top-level Predicts:");
 }
 
-function requireStrictRecordShape(text, record) {
+function requireStrictRecordShape(text, record, opts = {}) {
   if (record.errors.length > 0) throw acceptanceError(`record parse error: ${record.errors.join("; ")}`);
   const lines = text.split(/\r?\n/);
   const blank = lines.findIndex((line) => line.trim() === "");
@@ -1042,9 +1117,17 @@ function requireStrictRecordShape(text, record) {
   if (!/^wr-\d{4}-\d{2}-\d{2}-[a-z0-9-]+$/.test(record.fields.work)) {
     throw acceptanceError(`invalid Work: ${record.fields.work}`);
   }
+  if (!isGateStatusWord(record.fields.status)) {
+    throw acceptanceError(
+      `Status must be reviewed immediately before acceptance, got: ${record.fields.status}; accept refuses any Status word outside ${GATE_STATUS_WORDS.join(", ")}`,
+      "status-word-refused",
+    );
+  }
   if (record.fields.status !== "reviewed") {
     throw acceptanceError(`Status must be reviewed immediately before acceptance, got: ${record.fields.status}`);
   }
+  const progressProblem = checkProgressLine(record, { progressFrom: opts.progressFrom });
+  if (progressProblem) throw acceptanceError(progressProblem.message, "progress-line-missing");
   requireObservedBody(text);
 }
 
@@ -1252,7 +1335,7 @@ export function checkAcceptance(opts = {}) {
   }
   const text = readConfinedRegularFile(repoReal, repoRoot, opts.recordPath, fsImpl);
   const record = parseRecord(text);
-  requireStrictRecordShape(text, record);
+  requireStrictRecordShape(text, record, { progressFrom: opts.progressFrom });
 
   // lead-session-missing (R2, four-number read spec.md item 2): the record must name the
   // session that led this build - "no override: a record without its lead session cannot
@@ -1276,7 +1359,7 @@ export function checkAcceptance(opts = {}) {
   // workflow (lane 67, build-loop-fed): the same refusal/warning split as scratch above; see
   // checkWorkflowField. opts.workflowFrom moves WORKFLOW_FROM the way opts.scratchFrom moves
   // SCRATCH_FROM.
-  const workflowCheck = checkWorkflowField(record, { workflowFrom: opts.workflowFrom });
+  const workflowCheck = checkWorkflowField(record, { workflowFrom: opts.workflowFrom, maxRoundsFrom: opts.maxRoundsFrom });
   if (workflowCheck.refusal) {
     throw acceptanceError(workflowCheck.refusal.message, workflowCheck.refusal.code);
   }
@@ -1912,6 +1995,9 @@ export function checkMergeReady(opts = {}) {
   }
   const record = parseRecord(text);
   const status = record.fields.status ?? "<missing>";
+  if (!isGateStatusWord(record.fields.status)) {
+    throw acceptanceError(`refusing to merge ${branch}: ${rel} says Status: "${status}" there, which is not an allowed Status word (${GATE_STATUS_WORDS.join(", ")}); run accept on the branch first`, "status-word-refused");
+  }
   if (status !== "accepted") {
     throw acceptanceError(`refusing to merge ${branch}: ${rel} says Status: "${status}" there, not accepted - run accept on the branch first`, "not-accepted-for-merge");
   }
@@ -2283,6 +2369,89 @@ function removeScratchDirectory({ scratchPath, record, root, by, dryRun, fsImpl,
   return { step: "scratch", result: "removed", ref: scratchPath };
 }
 
+/**
+ * Lane 74 item 4: a lane that lands leaves nothing. The build loop's territory worktrees
+ * (`wt-<slug>-<id>`) and branches (`<lane branch>-<id>`) are named by no record, so the record's
+ * own Worktree: step above never reaches them. This step does, for the branches that match
+ * `<lane branch>-<id>` (id: letters, digits, `_` or `.` only, so another lane whose own branch merely
+ * starts with this one's name and a hyphen is not swept up), and only when ALL hold:
+ *   - no other record that is not closed/withdrawn claims that branch (recordBranchNames);
+ *   - its tip is an ancestor of origin/main (merge proof: no work is lost by removing it);
+ *   - the worktree is clean (closeoutWorktree refuses a dirty one and leaves it, and its branch).
+ * Whose territory a branch is (a name prefix alone cannot say: `build/x-v2` is a different lane's
+ * branch, cut after this one): the lane's own `docs/work/<work>.loop-state.json` `setup.territories[].branch`
+ * names them exactly when that file exists; without it a branch must also be an ancestor of the
+ * lane's own Artifact sha (the territory was merged into THIS lane, not merely into main).
+ * Removal goes only through closeoutWorktree, one worktree line and one branch line per territory
+ * (`territory-worktree` / `territory-branch`: removed, refused <reason>, absent or dirty). Nothing
+ * is returned when the lane has no territory branch or worktree at all.
+ */
+const TERRITORY_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.]*$/;
+export function loopStateTerritoryBranches(loopStatePath, fsImpl) {
+  if (!loopStatePath) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(fsImpl.readFileSync(loopStatePath, "utf8"));
+  } catch {
+    return null;
+  }
+  const list = parsed && parsed.setup && Array.isArray(parsed.setup.territories) ? parsed.setup.territories : [];
+  const names = list.map((t) => (t && typeof t.branch === "string" ? t.branch.trim() : "")).filter(Boolean);
+  return names.length > 0 ? new Set(names) : null;
+}
+
+export function closeoutTerritories({ repoRoot, laneBranch, mainBranch, mainRef, dryRun, spawnImpl, listWorktreesImpl, records, ownWorkId, worktreesByPath, loopStateBranches = null, laneArtifactSha = null }) {
+  if (!laneBranch) return [];
+  const prefix = `${laneBranch}-`;
+  const gitEnv = withoutRepoLocatingGitEnv(process.env);
+  const branches = new Set();
+  const ref = spawnImpl("git", ["for-each-ref", "--format=%(refname:short)", `refs/heads/${prefix}*`], { cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: gitEnv });
+  if (!ref.error && ref.status === 0) {
+    for (const line of String(ref.stdout ?? "").split(/\r?\n/)) if (line.trim()) branches.add(line.trim());
+  }
+  const worktrees = listWorktreesImpl(repoRoot);
+  for (const w of worktrees ?? []) if (w.branch && !w.main) branches.add(normalizeBranchName(w.branch));
+  const found = [...branches]
+    .filter((b) => b.startsWith(prefix) && TERRITORY_ID_RE.test(b.slice(prefix.length)))
+    .filter((b) => loopStateBranches === null || loopStateBranches.has(b))
+    .sort();
+  const steps = [];
+  for (const b of found) {
+    const claimant = (records || []).find((r) => {
+      if (ownWorkId !== undefined && r.fields.work === ownWorkId) return false;
+      if (r.fields.status === "closed" || r.fields.status === "withdrawn") return false;
+      return recordBranchNames(r, worktreesByPath).has(b);
+    });
+    if (claimant) {
+      steps.push({ step: "territory-branch", ref: b, result: "refused", detail: `named by ${claimant.fields.work} (Status: ${claimant.fields.status ?? "<missing>"}), not closed/withdrawn` });
+      continue;
+    }
+    const tip = resolveRefSha(repoRoot, `refs/heads/${b}`, spawnImpl);
+    if (tip) {
+      const anc = spawnImpl("git", ["merge-base", "--is-ancestor", tip, mainRef], { cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: gitEnv });
+      if (anc.error || anc.status !== 0) {
+        steps.push({ step: "territory-branch", ref: b, result: "refused", detail: `not merged: ${tip} is not an ancestor of origin/main` });
+        continue;
+      }
+      if (loopStateBranches === null) {
+        const inLane = laneArtifactSha
+          ? spawnImpl("git", ["merge-base", "--is-ancestor", tip, laneArtifactSha], { cwd: repoRoot, encoding: "utf8", stdio: "pipe", env: gitEnv })
+          : null;
+        if (!inLane || inLane.error || inLane.status !== 0) {
+          steps.push({ step: "territory-branch", ref: b, result: "refused", detail: `not part of this lane: ${tip} is not an ancestor of the lane's Artifact${laneArtifactSha ? ` ${laneArtifactSha}` : ""}` });
+          continue;
+        }
+      }
+    }
+    const wt = closeoutWorktree({ root: repoRoot, worktreeField: b, branchName: b, mainBranch, cwd: process.cwd(), dryRun, listWorktreesImpl });
+    for (const st of wt.steps) {
+      steps.push({ ...st, step: st.step === "worktree" ? "territory-worktree" : "territory-branch" });
+    }
+    if (!wt.steps.some((st) => st.step === "branch")) steps.push({ step: "territory-branch", ref: b, result: "absent" });
+  }
+  return steps;
+}
+
 function formatCloseoutLine(r, dryRun) {
   const verb = dryRun ? `would ${r.result}` : r.result;
   const ref = r.ref ? ` ${r.ref}` : "";
@@ -2379,6 +2548,7 @@ export function closeoutRecord(opts = {}) {
   // M2: --prune too, so a branch already deleted on origin drops its stale local tracking ref
   // instead of being evaluated against a sha that no longer exists there.
   let blockedReason = artifactRepoBlockedReason;
+  let laneArtifactSha = null;
   if (!blockedReason) {
     const fetchResult = spawnImpl("git", ["fetch", "--prune", "origin"], { cwd: mergeProofRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
     const fetchFailed = Boolean(fetchResult.error || fetchResult.status !== 0);
@@ -2392,6 +2562,7 @@ export function closeoutRecord(opts = {}) {
         blockedReason = error.message;
       }
       if (!blockedReason) {
+        laneArtifactSha = artifactSha;
         const anc = spawnImpl("git", ["merge-base", "--is-ancestor", artifactSha, mainRef], { cwd: mergeProofRoot, encoding: "utf8", stdio: "pipe", env: withoutRepoLocatingGitEnv(process.env) });
         if (anc.error || anc.status !== 0) blockedReason = `Artifact ${artifactSha} is not an ancestor of origin/main`;
       }
@@ -2479,6 +2650,13 @@ export function closeoutRecord(opts = {}) {
           results.push({ step: "origin-branch", result: "refused", ref: branchName, detail: del.moved ? "moved" : del.error.replace(/\s+/g, " ").trim() });
         }
       }
+    }
+
+    // 4b. Territory worktrees and branches of this lane (lane 74 item 4).
+    if (worktreesByPath !== null && ownBranchName) {
+      const loopStatePath = record.fields.work ? path.join(path.dirname(path.resolve(repoRoot, opts.recordPath)), `${record.fields.work}.loop-state.json`) : null;
+      const loopStateBranches = loopStateTerritoryBranches(loopStatePath, fsImpl);
+      for (const st of closeoutTerritories({ repoRoot, laneBranch: ownBranchName, mainBranch, mainRef, dryRun, spawnImpl, listWorktreesImpl, records, ownWorkId: record.fields.work, worktreesByPath, loopStateBranches, laneArtifactSha })) results.push(st);
     }
 
     // 5. Scratch directory.

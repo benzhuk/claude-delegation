@@ -13,7 +13,8 @@
 //             [--packet-file <path|->] [--force] [--tz NYC] [--orca <cmd>] [--wait-max <seconds>=15]
 //             [--no-type] [--no-drain] [--dry-run] [--json]
 //
-//   --packet-file writes the detail packet to <recipient-repo>/docs/notes/<id>.md BEFORE the ledger line (stdin when `-`);
+//   --packet-file writes the detail packet to ~/.agents/notes/packets/<recipient-repo-name>/<id>.md BEFORE the ledger line
+//   (stdin when `-`), outside every checkout; the envelope's Details is .agents/notes/packets/<repo-name>/<id>.md, resolved against HOME;
 //   an existing packet is never overwritten without --force. Cross-host notes: run note-send on the recipient's host
 //   over ssh (see envelope.md transport step 7); there is no <host>: Details form.
 //
@@ -88,7 +89,7 @@ import {
   HANDLE_RE, toPosix, gitRunner, mainCheckout, makeOrcaRunner,
   classifyPane, isSendable, twoPhaseSend, showPane, readPane,
   resolvePane, isLocalPane, titleToSlug, readBindings,
-  ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket, readIfExists, readLedgerCorpus,
+  ledgerPath, notesMirrorPath, packetPathFor, packetDetailsFor, resolveDetailsPath, ensureLedgerIgnored, appendLine, writePacket, readIfExists, readLedgerCorpus,
   writeOutboxEntry, benInboxPath, notesDir, isMainModule, worktreePathFromEnv,
   readInboxes, wakeAllKindsPath, noUnknownCheckPath, isUnknownRecipient, knownSlugs, recentMirrorTexts,
   killSwitchActive, withoutIds, undeliveredIds, insideGitCheckout,
@@ -729,12 +730,15 @@ export async function runNoteSend(argv, deps = {}) {
   const n = args.n !== undefined ? Number(args.n) : nextCounter(readLedgerCorpus(ledgerDirs, fsImpl), prefix);
   if (!Number.isInteger(n) || n < 1) throw new NoteError(1, `--n must be a positive integer (got "${args.n}")`);
   const id = args.id ? validateId('id', args.id) : `${prefix}-${n}`;
-  const packetPath = args['packet-file'] !== undefined ? packetPathFor(targetRepo, id) : null;
-  // A packet is useful only if the ledger points the recipient to it. Explicit --details remains a
-  // caller-controlled reference; without it, derive the exact packet path from the resolved id once.
-  const details = args.details
-    ? validateDetails(args.details)
-    : (packetPath ? validateDetails(path.posix.join('docs', 'notes', `${id}.md`)) : undefined);
+  const packetPath = args['packet-file'] !== undefined ? packetPathFor(targetRepo, id, home, env) : null;
+  // A packet is useful only if the ledger points the recipient to it. With --packet-file the Details is
+  // always derived from the resolved id; an explicit --details that names anywhere else is refused before
+  // any packet or ledger write, so the line never points at a packet that was not written there.
+  const derivedDetails = packetPath ? validateDetails(packetDetailsFor(targetRepo, id)) : undefined;
+  if (args.details && packetPath && validateDetails(args.details) !== derivedDetails) {
+    throw new NoteError(1, `--details ${args.details} does not name the packet --packet-file writes (${derivedDetails}); drop --details, a packet's Details is derived`);
+  }
+  const details = args.details ? validateDetails(args.details) : derivedDetails;
 
   const toSlug = isBen ? RESERVED_RECIPIENT : recipientSlug(pane, toRaw, bindings);
   const envelope = buildEnvelope({
@@ -752,8 +756,8 @@ export async function runNoteSend(argv, deps = {}) {
   if (packetPath && paneError) {
     warnings.push(`the packet was written to ${packetPath} — this session's repo, not the recipient's, because the pane did not resolve. Details: may not resolve for the reader.`);
   }
-  if (details && !packetPath && !dryRun && !fsImpl.existsSync(path.posix.join(toPosix(targetRepo), details))) {
-    warnings.push(`Details points at ${details}, which does not exist in ${targetRepo} — write it, or pass --packet-file`);
+  if (details && !packetPath && !dryRun && !fsImpl.existsSync(resolveDetailsPath(details, { home, repo: targetRepo, env }) ?? '')) {
+    warnings.push(`Details points at ${details}, which does not exist (looked in ${resolveDetailsPath(details, { home, repo: targetRepo, env }) ?? 'nowhere: the path cannot be placed'}) — write it, or pass --packet-file`);
   }
 
   if (dryRun) {
@@ -819,6 +823,8 @@ export async function runNoteSend(argv, deps = {}) {
     try { return recentMirrorTexts(home, 3, now.getTime(), fsImpl); } catch { return []; }
   })();
 
+  // Lane 74 item 5: the ledger line must not dirty a checkout (local .git/info/exclude, see transport.mjs).
+  for (const repoDir of uniq([targetRepo, senderRepo].filter(Boolean))) ensureLedgerIgnored(repoDir, fsImpl);
   for (const t of ledgerTargets) appendLine(t, envelope, fsImpl);
 
   // R2/R3: the mirror runs exactly once per invocation, here — after the local ledger write has

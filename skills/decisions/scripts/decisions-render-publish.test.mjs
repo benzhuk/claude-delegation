@@ -7,11 +7,12 @@ import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import {
-  publish, PublishError, ownerInputTriples, hasOwnerInput, multisetsEqual, defaultReadPickupCapture, defaultAccountRound,
+  publish, PublishError, revertOwnerInput, ownerInputTriples, hasOwnerInput, multisetsEqual, defaultReadPickupCapture, defaultAccountRound,
 } from './decisions-render-publish.mjs';
 import { normalize, RefusedError } from './decisions-render-core.mjs';
 import { parseDocument } from './decisions-read.mjs';
 import { run } from './decisions-render.mjs';
+import { toggleFiles, CARD_SHA } from './fixtures/toggles-fixtures.mjs';
 
 const REPO = '/repo';
 function p(...parts) { return path.join(REPO, ...parts); }
@@ -41,6 +42,7 @@ function fakeFs(files) {
 
 function baseFiles(overrides = {}) {
   return {
+    ...toggleFiles(path.join, REPO),
     [p('docs', 'decisions', 'now.md')]: 'The plugin runs the loop by itself. Ticks reach the right session within a minute. Knowledge sharing between machines is the next lane.',
     [p('docs', 'decisions', 'session.md')]: 'since: 2026-09-27T18:16:00Z\n- The collector runs on Netcup every 15 minutes.',
     [p('docs', 'decisions', 'history', '2026-09-27.md')]: '# Sep 27, 2026\nSummary: five lanes merged, the delete guard shipped.\n- some bullet\n',
@@ -60,6 +62,7 @@ function fakeGit(overrides = {}) {
     calls.push(args);
     if (overrides[args[0]]) return overrides[args[0]](args, cwd);
     if (args[0] === 'ls-tree') return args[args.length - 1];
+    if (args[0] === 'log') return CARD_SHA;
     if (args[0] === 'rev-parse') return args.includes('--abbrev-ref') ? 'main' : 'sha-fixed';
     if (args[0] === 'show') return '';
     if (args[0] === 'diff') throw new Error('there is a staged difference');
@@ -96,16 +99,30 @@ function baseDeps(over = {}) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const PAGE_NO_INPUT = [
-  '# Waiting on you now',
-  'Nothing right now.',
-  '# What is going on',
-  'Text.',
+  '# Waiting on you now {toggle="true"}',
+  '\tNothing right now.',
+  '\t## What is going on',
+  '\tText.',
+  '\t<callout icon="x">note</callout>',
+  '\t- [ ] Done',
+  '\t<empty-block/>',
   '# History {toggle="true"}',
   '\t<empty-block/>',
-  '<callout icon="x">note</callout>',
-  '- [ ] Done',
-  '<empty-block/>',
 ].join('\n');
+
+test('revertOwnerInput: a ticked Done nested in the Waiting toggle is unticked in place, indentation kept', () => {
+  const live = PAGE_NO_INPUT.replace('\t- [ ] Done', '\t- [x] Done');
+  const doc = parseDocument(live);
+  assert.equal(doc.done, true);
+  assert.deepEqual(doc.warnings, []);
+  assert.equal(revertOwnerInput(live, doc), PAGE_NO_INPUT);
+});
+
+test('revertOwnerInput: a legacy column-0 ticked Done is still unticked in place', () => {
+  const legacy = '# Waiting on you now\nNothing right now.\n# History {toggle="true"}\n\t<empty-block/>\n- [x] Done\n<empty-block/>';
+  const doc = parseDocument(legacy);
+  assert.equal(revertOwnerInput(legacy, doc), legacy.replace('- [x] Done', '- [ ] Done'));
+});
 
 test('hasOwnerInput: a clean page (unticked Done, no comments) has none', () => {
   const doc = parseDocument(PAGE_NO_INPUT);
@@ -243,8 +260,8 @@ test('publish: no owner input and no --clear-done runs clean through dry-run', a
     repo: REPO, page: 'PAGE', dryRun: true,
   }, deps);
   assert.equal(result.code, 0);
-  assert.match(result.rendered, /^# Waiting on you now/);
-  assert.match(result.rendered, /- \[ \] Done\n/); // step 4 copied the fresh (unticked) Done verbatim
+  assert.match(result.rendered, /^# Goal card {toggle="true"}/);
+  assert.match(result.rendered, /	- \[ \] Done\n/); // step 4 copied the fresh (unticked) Done verbatim
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -405,7 +422,7 @@ test('publish: Fix 1 — --dry-run warns on stderr for a dirty docs/decisions tr
   });
   const result = await publish({ repo: REPO, page: 'PAGE', dryRun: true }, deps);
   assert.equal(result.code, 0);
-  assert.match(result.rendered, /^# Waiting on you now/);
+  assert.match(result.rendered, /^# Goal card {toggle="true"}/);
   assert.ok(warnings.some((w) => w.startsWith('warning:')));
   assert.ok(warnings.some((w) => w.includes('docs/decisions/scratch.md')));
 });
@@ -767,6 +784,70 @@ test('publish: a readback that does not match the render is exit 5', async () =>
     publish({ repo: REPO, page: 'PAGE' }, deps),
     (e) => e instanceof PublishError && e.code === 5,
   );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Step 6 (lane 72b): Notion rewrites a `www.notion.so/<id>` link to `app.notion.com/p/<id>` on write
+// ─────────────────────────────────────────────────────────────────────────────
+
+function waitingItem(title) {
+  return [
+    '<details>',
+    `<summary>**${title}**</summary>`,
+    '\tNow: queue outgrew memory twice | To finish: you pick a cap or none | Est: a day after your tick',
+    '\tEvidence: the queue outgrew memory twice this month.',
+    '\t- [ ] Cap at 200 per run (recommended)',
+    '\t- [ ] Run uncapped',
+    '\tDefault after 2030-06-15 18:00 -04:00: cap at 200 items per run',
+    '\t<empty-block/>',
+    '</details>',
+  ].join('\n');
+}
+
+/** Simulates notion.js as the live page behaved after lane 72: the first `readPage` returns
+ * `freshPage`; every later read returns what `replaceMd` last received WITH Notion's own link
+ * rewrite applied (not the text verbatim). `mutate` lets a test change one more line. */
+function wireRewritingNotion(freshPage, mutate = (t) => t) {
+  let written = freshPage;
+  let reads = 0;
+  const rewrite = (md) => mutate(md
+    .replace(/https:\/\/(?:www\.)?notion\.so\/([0-9a-f]{32})/g, 'https://app.notion.com/p/$1')
+    .replace(/(\t<\/details>)\n\n/g, '$1\n'));
+  return {
+    readPage: async () => { reads += 1; return reads === 1 ? freshPage : rewrite(written); },
+    replaceMd: async (_page, md) => { written = md; },
+    writtenText: () => written,
+  };
+}
+
+test('publish (lane 72b): a page carrying the Goals page link reads back through the Notion link rewrite and is exit 0', async () => {
+  const files = baseFiles({
+    [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT,
+    [p('docs', 'decisions', 'waiting', 'a-item.md')]: waitingItem('Cap the nightly batch at 200 items or run it uncapped'),
+    [p('docs', 'decisions', 'waiting', 'b-item.md')]: waitingItem('Keep the old export format or drop it'),
+  });
+  const notion = wireRewritingNotion(PAGE_NO_INPUT);
+  const { deps, fsMap } = baseDeps({ files, readPage: notion.readPage, replaceMd: notion.replaceMd });
+  const result = await publish({ repo: REPO, page: 'PAGE' }, deps);
+  assert.equal(result.code, 0);
+  const written = notion.writtenText();
+  assert.ok(written.includes('\t</details>\n\n\t<details>'), 'the fixture exercises the blank separator between indented Waiting items');
+  assert.match(written, /\[Goals page\]\(https:\/\/[^)]+\/3e3da11277a1813cb326c42ed97a1d5d\)/, 'the Bearings toggle carries the Goals page link');
+  const lastRender = fsMap.get(p('docs', 'decisions', 'last-render.md'));
+  assert.equal(normalize(lastRender), normalize(written), 'last-render.md is the readback, equal to the written text after normalisation');
+  assert.ok(lastRender.includes('https://app.notion.com/p/3e3da11277a1813cb326c42ed97a1d5d'), 'last-render.md holds the readback form of the link');
+});
+
+test('publish (lane 72b): the same rewriting Notion with ONE genuinely different content line is still exit 5', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const notion = wireRewritingNotion(PAGE_NO_INPUT, (t) => t.replace('Netcup every 15 minutes', 'Netcup every 16 minutes'));
+  const { deps, fsMap } = baseDeps({ files, readPage: notion.readPage, replaceMd: notion.replaceMd });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE' }, deps),
+    (e) => e instanceof PublishError && e.code === 5,
+  );
+  assert.match(notion.writtenText(), /Netcup every 15 minutes/, 'the planted difference is in the readback, not the render');
+  assert.equal(fsMap.get(p('docs', 'decisions', 'last-render.md')), PAGE_NO_INPUT, 'last-render.md is not advanced on a readback failure');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

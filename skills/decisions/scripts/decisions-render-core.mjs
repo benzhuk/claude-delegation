@@ -17,17 +17,20 @@ import { execFileSync } from 'node:child_process';
 import { parseDocument, computeExitCode } from './decisions-read.mjs';
 import { withoutRepoLocatingGitEnv } from '../../multi/scripts/transport.mjs';
 import { lintPage, formatViolations } from '../../notion-writing/scripts/page-lint.mjs';
+import {
+  buildCardToggle, buildBearingsToggle, buildComponentsToggle, indentLines,
+} from './decisions-render-sections.mjs';
 
 /** exit 2 from the CLI: a source file breaks a rule this lane enforces before it ever writes. */
 export class RefusedError extends Error {}
 
 /**
  * The page-lint rules the render does NOT run on its own page, because it already owns the
- * concern: `checkWaitingItem` and `decisions-read.mjs` (finalizeDone) cover the waiting-item shape
- * and the Done line, and the history template writes " — " between a date link and its summary.
- * Everything else in page-lint's `decisions` kind runs (lane 39, spec Revision 2 F4).
+ * concern: `checkWaitingItem` covers the waiting-item shape, and the history template writes
+ * " — " between a date link and its summary. `done-last` and `top-level-toggle` DO run (lane 72):
+ * the Done checkbox is the last block inside the Waiting toggle and every top-level block is a toggle.
  */
-export const PAGE_LINT_SKIP = ['open-question-visible', 'decision-block', 'done-last', 'em-dash-arrow'];
+export const PAGE_LINT_SKIP = ['open-question-visible', 'decision-block', 'em-dash-arrow'];
 
 /** Fail-open presence test for a kill-switch file: anything but "it does not exist" counts as present. */
 function killSwitchPresent(p) {
@@ -47,7 +50,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Normalisation — spec: "CRLF to LF, strip trailing whitespace per line, collapse runs of blank
-// lines to one, drop a blank separator after a structural closing `</details>`, drop one
+// lines to one, drop a blank separator after a structural closing `</details>` (also tab-indented), drop one
 // trailing `<empty-block/>`; and, from the observed Notion readback probe, one backslash before
 // exactly `*`, `[`, `]`, backtick, `~`, `>`, `|`, or `<`; nothing else". The details exception
 // never applies inside fenced literals; observed escape equivalence never applies inside fenced
@@ -131,8 +134,11 @@ export function normalize(text) {
     } else if (!fence) {
       inlineDelimiter = null;
     }
-    if (!fence && l === '<details>') detailsDepth += 1;
-    const isStructuralDetailsClose = !fence && detailsDepth > 0 && l === '</details>';
+    // Lane 72 nests the Waiting items in a toggle, so their tags arrive tab-indented; Notion drops
+    // the blank separator after an indented structural close exactly as after a column-0 one.
+    const tag = l.replace(/^\t+/, '');
+    if (!fence && tag === '<details>') detailsDepth += 1;
+    const isStructuralDetailsClose = !fence && detailsDepth > 0 && tag === '</details>';
     const isBlank = l === '';
     if (isBlank && detailsSeparatorPending) {
       continue;
@@ -466,6 +472,53 @@ export function checkWaitingItem(text, label, now = new Date()) {
   }
 }
 
+// Lane 73 (report-states-73, spec item 3): the three progress fields as ONE short line. The
+// shape is the same one scripts/report-check.mjs parseProgressLine enforces for reports and
+// work-record.mjs enforces for lane records; restated here so the skill stays self-contained.
+const PROGRESS_LINE_RE = /^Now:[ \t]{0,20}(.{1,400}?)[ \t]{1,20}\|[ \t]{1,20}To finish:[ \t]{0,20}(.{1,400}?)[ \t]{1,20}\|[ \t]{1,20}Est:[ \t]{0,20}(.{1,200}?)[ \t]{0,20}$/;
+const PROGRESS_LINE_MAX_CHARS = 200;
+const PROGRESS_SHAPE = 'Now: <one line> | To finish: <one line> | Est: <duration>';
+
+/** True when `line` is exactly the three-field line, all three non-empty, no extra field. */
+export function isProgressLine(line) {
+  const m = PROGRESS_LINE_RE.exec(String(line).trim());
+  return Boolean(m) && m[1].trim() !== '' && m[2].trim() !== '' && m[3].trim() !== '' && !m[1].includes('|') && !m[2].includes('|') && !m[3].includes('|');
+}
+
+/** A waiting item shows the three fields as one short line directly under its title: the line
+ * right after the `<summary>` line, tab-indented like the rest of the item's children. Refused
+ * naming file and line. Run before the page is composed; the line then rides into the page
+ * verbatim (checkProseLines and checkAutolinkLines still see it). */
+export function checkWaitingProgressLine(text, label) {
+  const lines = String(text).replace(/\r\n/g, '\n').split('\n');
+  // Every <summary> in the file is an item title; a file with no toggle item is left to
+  // checkWaitingItem, which refuses what it cannot read.
+  lines.forEach((line, summaryIdx) => {
+    if (!/<summary>/.test(line)) return;
+    const next = lines[summaryIdx + 1] ?? '';
+    const bare = next.replace(/^\t+/, '');
+    if (!/^\t+Now:/.test(next)) {
+      throw new RefusedError(`${label}:${summaryIdx + 2} lacks the line directly under the title: \`${PROGRESS_SHAPE}\``);
+    }
+    if (!isProgressLine(bare)) {
+      throw new RefusedError(`${label}:${summaryIdx + 2} is not exactly \`${PROGRESS_SHAPE}\` with all three fields non-empty`);
+    }
+    if (bare.length > PROGRESS_LINE_MAX_CHARS) {
+      throw new RefusedError(`${label}:${summaryIdx + 2} is ${bare.length} characters, more than the required ${PROGRESS_LINE_MAX_CHARS} for the progress line`);
+    }
+  });
+}
+
+/** A session bullet that says it is in progress carries the three fields. The 200-character
+ * bullet limit counts the fields, so a bullet cannot pass by hiding them past the cut. */
+export function checkSessionProgress(bare, label) {
+  if (!/^In progress\b/i.test(bare)) return;
+  const at = bare.search(/Now:/);
+  if (at === -1 || !isProgressLine(bare.slice(at))) {
+    throw new RefusedError(`${label} says "In progress" but lacks \`${PROGRESS_SHAPE}\` with all three fields non-empty`);
+  }
+}
+
 function buildWaitingSection({
   repo, readFile, readdirSync, now,
 }) {
@@ -476,6 +529,7 @@ function buildWaitingSection({
     const full = path.join(dir, f);
     const text = readRequired(readFile, full, `waiting/${f}`);
     checkWaitingItem(text, `waiting/${f}`, now);
+    checkWaitingProgressLine(text, `waiting/${f}`);
     checkProseLines(text, `waiting/${f}`);
     checkAutolinkLines(text, `waiting/${f}`);
     return text.replace(/\s+$/, '');
@@ -527,6 +581,7 @@ function buildSessionSection({ repo, readFile }) {
     if (bare.length > SESSION_MAX_BULLET_CHARS) {
       throw new RefusedError(`session.md:${idx + 2} is ${bare.length} characters, more than the required ${SESSION_MAX_BULLET_CHARS}`);
     }
+    checkSessionProgress(bare, `session.md:${idx + 2}`);
   }
   const heading = `# This session (since your tick at ${formatSinceHeading(since)})`;
   const body = bullets.map((b) => (b.startsWith('-') ? b : `- ${b}`));
@@ -616,19 +671,33 @@ export function render({
     repo, readFile, readdirSync, execGit,
   });
 
+  // Lane 72 page shape (spec scope items 1, 6, 7): every top-level block is a toggle. Three
+  // agent-owned toggles first (Goal card, Bearings, Components), then Waiting on you now holding
+  // the items, What is going on, This session, the comment callout and, as its LAST block, the
+  // Done checkbox; History closes the page.
+  const cardToggle = buildCardToggle({ repo, readFile, execGit });
+  const bearingsToggle = buildBearingsToggle({ repo, readFile, readdirSync });
+  const componentsToggle = buildComponentsToggle({ repo, readFile, execGit });
+
+  const waitingChildren = [
+    waitingBlock,
+    '## What is going on',
+    nowText,
+    session.heading.replace(/^# /, '## '),
+    ...session.body,
+    COMMENT_CALLOUT,
+    doneLine,
+  ].join('\n');
   const lines = [];
-  lines.push('# Waiting on you now');
-  lines.push(waitingBlock);
-  lines.push('# What is going on');
-  lines.push(nowText);
-  lines.push(session.heading);
-  lines.push(...session.body);
+  lines.push(cardToggle);
+  lines.push(bearingsToggle);
+  lines.push(componentsToggle);
+  lines.push('# Waiting on you now {toggle="true"}');
+  lines.push(indentLines(waitingChildren));
+  lines.push('\t<empty-block/>');
   lines.push('# History {toggle="true"}');
   for (const b of historyBullets) lines.push(`\t${b}`);
   lines.push('\t<empty-block/>');
-  lines.push(COMMENT_CALLOUT);
-  lines.push(doneLine);
-  lines.push('<empty-block/>');
   const page = `${lines.join('\n')}\n`;
 
   // Review round-2 F3: render()'s own acceptance rule, enforced — the composed page must itself

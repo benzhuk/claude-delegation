@@ -11,7 +11,7 @@ import {
   checkAcceptance, acceptRecord, acceptanceMain, isCensusFile, extractCensusSummary, extractCensusTimestamp,
   isIncompleteCensus, parseAcceptanceArgs, withdrawRecord, parseWithdrawArgs, closeRecord, parseCloseArgs,
   STRICT_FROM, MODEL_TIER_TOKENS, countedModelTiers, isStrictRecord, checkMeasureTruthRules,
-  SCRATCH_FROM, checkScratchField, closeoutRecord, WORKFLOW_FROM, checkMergeReady, parseMergeCheckArgs,
+  SCRATCH_FROM, checkScratchField, closeoutRecord, WORKFLOW_FROM, MAXROUNDS_FROM, checkMergeReady, parseMergeCheckArgs,
 } from "./work-record.mjs";
 
 function codes(findings) {
@@ -4156,4 +4156,43 @@ test("lane 67: docs/work-record.md documents Workflow: and Measure: and the WORK
   assert.match(text, /workflow-missing/);
   assert.match(text, /workflow-invalid/);
   assert.ok(text.includes("2026-10-01T00:00:00Z"));
+});
+
+// lane 73 (F1): a Workflow: value that names a run must carry maxRounds=<n> once MAXROUNDS_FROM
+// has passed (judged on Spec-from:); older records, `none, <reason>` and accepted records are not refused.
+test("lane 73 F1: MAXROUNDS_FROM is exported and the `<run id> maxRounds=<n>` form parses as a known field", () => {
+  assert.equal(MAXROUNDS_FROM, "2026-10-02T03:00:00Z");
+  const r = parseRecord(mkRecordText({ Workflow: "wf_3dacfee5-54a maxRounds=3" }));
+  assert.deepEqual(r.errors, []);
+  assert.equal(r.fields.workflow, "wf_3dacfee5-54a maxRounds=3");
+});
+
+test("lane 73 F1: checkAcceptance refuses a run-id Workflow: with no maxRounds=<n> when Spec-from is on/after MAXROUNDS_FROM", () => {
+  const f = makeAcceptanceFixture({ Workflow: "wf_3dacfee5-54a", "Spec-from": "2026-10-02T03:00:00Z" });
+  assert.throws(
+    () => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }),
+    (err) => err.code === "workflow-maxrounds-missing",
+  );
+  // a malformed bound is the same refusal
+  const bad = makeAcceptanceFixture({ Workflow: "wf_3dacfee5-54a maxRounds=lots", "Spec-from": "2026-10-02T03:00:00Z" });
+  assert.throws(
+    () => checkAcceptance({ repoRoot: bad.repo, recordPath: bad.record, pinnedArtifact: bad.sha }),
+    (err) => err.code === "workflow-maxrounds-missing",
+  );
+});
+
+test("lane 73 F1: a Workflow: with maxRounds=<n> passes, as does `none, <reason>`", () => {
+  for (const value of ["wf_3dacfee5-54a maxRounds=3", "wf_3dacfee5-54a maxRounds=0", "none, Codex-led: no Workflow tool"]) {
+    const f = makeAcceptanceFixture({ Workflow: value, "Spec-from": "2026-10-03T00:00:00Z" });
+    assert.doesNotThrow(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }), value);
+  }
+});
+
+test("lane 73 F1: a record whose Spec-from is before MAXROUNDS_FROM is not refused for a missing maxRounds (opts.maxRoundsFrom moves the cutoff)", () => {
+  const f = makeAcceptanceFixture({ Workflow: "wf_3dacfee5-54a", "Spec-from": "2026-10-01T00:00:00Z" });
+  assert.doesNotThrow(() => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha }));
+  assert.throws(
+    () => checkAcceptance({ repoRoot: f.repo, recordPath: f.record, pinnedArtifact: f.sha, maxRoundsFrom: "2026-10-01T00:00:00Z" }),
+    (err) => err.code === "workflow-maxrounds-missing",
+  );
 });

@@ -34,7 +34,9 @@ test('maskLine: the keywords the rules key on survive, in any case', () => {
   for (const k of KEYWORDS) {
     assert.equal(maskLine(`**${k}:** hidden`), `**${k}:** xxxxxx`, k);
   }
-  assert.equal(maskLine('# Waiting on you now'), '# Waiting on you xxx');
+  assert.equal(maskLine('# Waiting on you now'), '# Waiting on you now');
+  assert.equal(maskLine('# Goal card'), '# Goal card');
+  assert.equal(maskLine('# Waiting on you soon'), '# Waiting on you xxxx');
   assert.equal(maskLine('Read now: the second toggle'), 'Read now: xxx xxxxxx xxxxxx');
   assert.equal(maskLine('Undecided things'), 'xxxxxxxxx xxxxxx', 'a keyword inside a longer word is not kept');
 });

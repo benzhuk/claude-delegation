@@ -17,7 +17,7 @@ import { parseDocument } from './decisions-read.mjs';
 import { loadProjectConfig } from './project-config.mjs';
 import { runNoteSend } from '../../multi/scripts/note-send.mjs';
 import { parseEnvelope } from '../../multi/scripts/envelope.mjs';
-import { gitRunner, mainCheckout } from '../../multi/scripts/transport.mjs';
+import { gitRunner, mainCheckout, repoName, PACKET_DETAILS_PREFIX } from '../../multi/scripts/transport.mjs';
 
 export const RECEIPT_VERSION = 2;
 const LEGACY_RECEIPT_VERSION = 1;
@@ -243,8 +243,13 @@ function privateCaptureRelative(projectScope, round, digest = null) {
   return `captures/${projectScope}/r${round}${suffix}.json`;
 }
 
-function detailsRelative(projectScope, round) {
-  return `docs/notes/decisions-pickup-${projectScope}-r${round}.pointer.json`;
+// Lane 74 item 5: the pointer is a plugin-written packet, so it lives outside every checkout, under
+// ~/.agents/notes/packets/<repo-name>/ (AGENTS_HOME/notes/packets/... here), and the note's Details names it
+// as .agents/notes/packets/<repo-name>/<file>, the same convention note-inbox resolves against HOME. A
+// receipt written before this keeps its docs/notes/... detailsPath, which still resolves against the
+// transport repository exactly as it always did.
+function detailsRelative(projectScope, round, transportRepo) {
+  return `${PACKET_DETAILS_PREFIX}${repoName(transportRepo)}/decisions-pickup-${projectScope}-r${round}.pointer.json`;
 }
 
 function resolvePrivateCapture(receipt, privateRef, base, fsImpl = fs) {
@@ -267,9 +272,15 @@ function resolvePrivateCapture(receipt, privateRef, base, fsImpl = fs) {
   return full;
 }
 
-function resolveDetails(receipt, detailsPath, fsImpl = fs) {
+function resolveDetails(receipt, detailsPath, fsImpl = fs, base = agentsHome()) {
   if (!detailsPath || path.isAbsolute(detailsPath) || detailsPath.split(/[\\/]/).includes('..')) {
     throw new PickupError('details pointer path is invalid');
+  }
+  if (detailsPath.startsWith(PACKET_DETAILS_PREFIX)) {
+    const packetsRoot = canonicalThroughExistingAncestor(path.join(base, 'notes', 'packets'), fsImpl);
+    const homed = canonicalThroughExistingAncestor(path.resolve(base, ...detailsPath.slice('.agents/'.length).split('/')), fsImpl);
+    if (!sameOrInside(homed, packetsRoot)) throw new PickupError('details pointer path escapes the packets directory');
+    return homed;
   }
   const transportRoot = canonicalThroughExistingAncestor(receipt.transportRepo, fsImpl);
   const full = canonicalThroughExistingAncestor(path.resolve(transportRoot, ...detailsPath.split('/')), fsImpl);
@@ -291,8 +302,8 @@ function pointerPacket(receipt) {
   };
 }
 
-function writePointerExclusive(receipt, fsImpl = fs) {
-  const file = resolveDetails(receipt, receipt.detailsPath, fsImpl);
+function writePointerExclusive(receipt, fsImpl = fs, base = agentsHome()) {
+  const file = resolveDetails(receipt, receipt.detailsPath, fsImpl, base);
   const serialized = `${JSON.stringify(pointerPacket(receipt), null, 2)}\n`;
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
   try {
@@ -448,9 +459,9 @@ function verifyOnePrivateCapture(receipt, privateRef, expectedDigest, base, fsIm
   }
 }
 
-function verifyPointer(receipt, fsImpl = fs) {
+function verifyPointer(receipt, fsImpl = fs, base = agentsHome()) {
   try {
-    const full = resolveDetails(receipt, receipt.detailsPath, fsImpl);
+    const full = resolveDetails(receipt, receipt.detailsPath, fsImpl, base);
     const expected = `${JSON.stringify(pointerPacket(receipt), null, 2)}\n`;
     const actual = fsImpl.readFileSync(full, 'utf8');
     return actual === expected ? { status: 'OK' } : { status: 'TAMPERED' };
@@ -518,7 +529,7 @@ function verifyReceiptEvidence(receipt, base, fsImpl = fs) {
   if (receipt.version === LEGACY_RECEIPT_VERSION) return verifyLegacyEvidence(receipt, fsImpl);
   const capture = verifyOnePrivateCapture(receipt, receipt.privateCaptureRef, receipt.digest, base, fsImpl);
   if (capture.status !== 'OK') return { status: 'CAPTURE_INVALID', capture };
-  const pointer = verifyPointer(receipt, fsImpl);
+  const pointer = verifyPointer(receipt, fsImpl, base);
   if (pointer.status !== 'OK') return { status: 'POINTER_INVALID', capture, pointer };
   if (receipt.reconciliationPrivateCaptureRef) {
     const changed = verifyOnePrivateCapture(receipt, receipt.reconciliationPrivateCaptureRef, receipt.observedDigest, base, fsImpl);
@@ -1080,7 +1091,7 @@ export async function pickupOnce(options, deps = {}) {
       }
       deps.onTransition?.('CAPTURED', capture);
       try {
-        writePointerExclusive(receipt, fsImpl);
+        writePointerExclusive(receipt, fsImpl, base);
       } catch {
         const interrupted = {
           ...receipt,
@@ -1204,7 +1215,7 @@ export async function pickupOnce(options, deps = {}) {
     const from = validateSlug('from', options.from);
     const round = (receipt?.round ?? 0) + 1;
     const privateCaptureRef = privateCaptureRelative(paths.projectScope, round);
-    const detailsPath = detailsRelative(paths.projectScope, round);
+    const detailsPath = detailsRelative(paths.projectScope, round, transportRepo);
     const capture = {
       version: RECEIPT_VERSION,
       type: 'decisions-pickup-private-capture',
@@ -1248,7 +1259,7 @@ export async function pickupOnce(options, deps = {}) {
     const capturePath = resolvePrivateCapture(intent, privateCaptureRef, base, fsImpl);
     writeCaptureExclusive(capturePath, capture, fsImpl);
     deps.onTransition?.('CAPTURED', capture);
-    writePointerExclusive(intent, fsImpl);
+    writePointerExclusive(intent, fsImpl, base);
     deps.onTransition?.('POINTER_WRITTEN', pointerPacket(intent));
 
     if (!owner) {
@@ -1626,7 +1637,7 @@ export function rebind(options, deps = {}) {
       ...(lead && receipt.owner && lead !== receipt.owner && receipt.state !== 'ACCOUNTED'
         ? { handoffStatus: 'PENDING_MANUAL_HANDOFF', requestedOwner: lead, handoffObservedAt: now.toISOString() } : {}),
     };
-    const pointer = verifyPointer(rebound, fsImpl);
+    const pointer = verifyPointer(rebound, fsImpl, base);
     if (pointer.status !== 'OK') {
       throw new PickupError(`the details pointer is not present under the new transport repository (${pointer.status})`);
     }

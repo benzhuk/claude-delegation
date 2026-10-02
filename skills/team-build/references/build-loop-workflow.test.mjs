@@ -295,13 +295,21 @@ function makeAgentStub(byLabel = {}) {
   // `stateCalls` (and every call, in order, in `allCalls`). An unscripted state label answers a
   // benign default (nothing found on read, written on write); a scripted one answers its entry.
   const stateCalls = [];
+  // lane 74 item 1: the phase-end commit runner calls (label "commit:<...>") are likewise kept out of
+  // `calls`; they land in `commitCalls` (and `allCalls`). An unscripted commit label answers a benign
+  // clean-tree default; a scripted one (or null) answers its entry.
+  const commitCalls = [];
   const allCalls = [];
   const seenPerLabel = new Map();
   async function agentStub(prompt, opts) {
     const label = opts && opts.label;
     const isState = typeof label === "string" && label.startsWith("state:");
+    const isCommit = typeof label === "string" && label.startsWith("commit:");
     allCalls.push({ prompt, opts });
-    (isState ? stateCalls : calls).push({ prompt, opts });
+    (isState ? stateCalls : isCommit ? commitCalls : calls).push({ prompt, opts });
+    if (isCommit && !Object.prototype.hasOwnProperty.call(byLabel, label)) {
+      return { committed: false, sha: "", reason: "clean" };
+    }
     if (isState && !Object.prototype.hasOwnProperty.call(byLabel, label)) {
       return label === "state:read" ? { found: false, state: null } : { path: "state-file", written: true };
     }
@@ -318,6 +326,7 @@ function makeAgentStub(byLabel = {}) {
   }
   agentStub.calls = calls;
   agentStub.stateCalls = stateCalls;
+  agentStub.commitCalls = commitCalls;
   agentStub.allCalls = allCalls;
   return agentStub;
 }
@@ -1216,7 +1225,7 @@ test("setup path: full fixture run produces setup, builds, reviews, integrate, s
   // lane 67 item 3: recordPath is in SETUP_ARGS, so the loop-state runner calls (label
   // state:<phase>) are in the journal too: one read at launch, then writes after each phase.
   // The eight work calls below are unchanged; the state labels are asserted on their own.
-  const workLabels = journal.filter((e) => e.type === "agent" && !e.label.startsWith("state:")).map((e) => e.label).sort();
+  const workLabels = journal.filter((e) => e.type === "agent" && !e.label.startsWith("state:") && !e.label.startsWith("commit:")).map((e) => e.label).sort();
   assert.deepEqual(
     workLabels,
     ["accept-prep", "build:L1:r1", "build:L2:r1", "integrate", "review:L1:r1", "review:L2:r1", "seam:r1", "setup"],
@@ -2529,4 +2538,204 @@ test("lane 67: every prompt the script renders, state and second-host runners in
     assert.ok(!/note-send/.test(call.prompt));
     assert.ok(PINNED_PAIRS.some((p) => p.agentType === call.opts.agentType && p.model === call.opts.model), `${call.opts.label} uses a pinned pair`);
   }
+});
+
+// lane 73 (F1): the accept-prep command carries the round bound actually used, so the record's
+// Workflow: line reads `<run id> maxRounds=<n>`.
+async function acceptPrepPromptFor(extraArgs) {
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl", ...extraArgs };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+    "accept-prep": {
+      censusPath: null,
+      censusNote: "ok for test",
+      integrationHead: "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
+      evidencePaths: [],
+      checkAcceptance: { exitCode: 1, verdict: "FAIL", output: "no artifact yet" },
+      reportPath: acceptReportPathFor(args),
+    },
+  });
+  await runScript(args, stub);
+  return stub.calls.find((c) => c.opts.label === "accept-prep").prompt;
+}
+
+test("lane 73 F1: accept-prep's command carries --max-rounds with the value the loop used", async () => {
+  const prompt = await acceptPrepPromptFor({ maxRounds: 5 });
+  assert.ok(prompt.includes("--max-rounds 5 --census-out"), "the explicit maxRounds is passed through");
+});
+
+test("lane 73 F1: maxRounds omitted passes the default 3 to accept-prep", async () => {
+  const prompt = await acceptPrepPromptFor({});
+  assert.ok(prompt.includes("--max-rounds 3 --census-out"), "default is 3");
+});
+
+// ---------------------------------------------------------------------------
+// lane 74 item 1: uncommitted code never outlives a phase.
+// ---------------------------------------------------------------------------
+
+test("lane 74 item 1: BUILD_MANDATE tells the builder to commit before its report", () => {
+  const m = SOURCE.match(/const BUILD_MANDATE =[\s\S]*?(?=\nconst |\n\/\/)/);
+  assert.ok(m, "expected BUILD_MANDATE's declaration");
+  assert.ok(m[0].includes("Commit your territory to the branch of your worktree before your report"));
+  assert.ok(m[0].includes(`${GUARD_REPORT_SENTENCE} Never send peer notes.`), "the denial-handling sentence still sits right before the prohibition");
+});
+
+test("lane 74 item 1: a commit runner runs after every Build and Fix call, on that territory's own worktree, with the pinned runner pair", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("NEEDS_FIXES", "a".repeat(40), "f1.md"),
+    "build:T1:r2": buildResult("aaaaaaa2"),
+    "review:T1:r2": reviewResult("APPROVE", "aaaaaaa2", "f1b.md"),
+    "build:T2:r1": buildResult("bbbbbbb1"),
+    "review:T2:r1": reviewResult("APPROVE", "bbbbbbb1", "f2.md"),
+    integrate: integrateResult(),
+    "commit:T1:r1": { committed: true, sha: "a".repeat(40), reason: "committed" },
+  });
+  const result = await runScript({ ...BASE_ARGS, territories: [T1, T2] }, stub);
+  assert.deepEqual(stub.commitCalls.map((c) => c.opts.label).sort(), ["commit:T1:r1", "commit:T1:r2", "commit:T2:r1"]);
+  for (const call of stub.commitCalls) {
+    assert.equal(call.opts.agentType, "delegation:runner");
+    assert.equal(call.opts.model, "sonnet");
+    assert.ok(call.prompt.includes("skills/team-build/references/phase-commit.mjs"));
+    assert.ok(call.prompt.includes("--json"));
+    assert.match(call.prompt, DEADLINE_RE(45));
+    assert.ok(/Never send peer notes\./.test(call.prompt));
+    assert.ok(!/note-send/.test(call.prompt));
+  }
+  const t1r1 = stub.commitCalls.find((c) => c.opts.label === "commit:T1:r1");
+  assert.ok(t1r1.prompt.includes("--worktree ../wt-T1"));
+  assert.ok(t1r1.prompt.includes("chore(T1): phase-end commit after Build round 1"));
+  assert.ok(stub.commitCalls.find((c) => c.opts.label === "commit:T2:r1").prompt.includes("--worktree ../wt-T2"));
+  assert.ok(stub.commitCalls.find((c) => c.opts.label === "commit:T1:r2").prompt.includes("after Fix round 2"));
+  // the territory results are exactly what they were without the commit step
+  assert.ok(result.territories.every((t) => t.verdict === "APPROVE" && t.blocker === null));
+});
+
+test("lane 74 item 1: the commit runs before the builder's result is judged, in the order build then commit then review", async () => {
+  const order = [];
+  const inner = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1", "f1.md"),
+    integrate: integrateResult(),
+  });
+  const stub = async (prompt, opts) => {
+    order.push(opts.label);
+    return inner(prompt, opts);
+  };
+  await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
+  assert.deepEqual(order.slice(0, 3), ["build:T1:r1", "commit:T1:r1", "review:T1:r1"]);
+});
+
+test("lane 74 item 1: a builder that dies still gets its worktree committed, after each death, and the blocker stays agent-died", async () => {
+  const stub = makeAgentStub({ "build:T1:r1": null, integrate: integrateResult() });
+  const result = await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
+  assert.equal(result.territories[0].blocker, "agent-died");
+  assert.deepEqual(stub.commitCalls.map((c) => c.opts.label), ["commit:T1:r1", "commit:T1:r1:respawn"]);
+  for (const call of stub.commitCalls) assert.ok(call.prompt.includes("--worktree ../wt-T1"));
+});
+
+test("lane 74 item 1: a dead builder that respawns into a PASS is committed after both calls", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": [null, buildResult("aaaaaaa1")],
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
+  assert.equal(result.territories[0].verdict, "APPROVE");
+  assert.equal(stub.commitCalls.length, 2);
+});
+
+test("lane 74 item 1: a commit runner that dies, refuses or answers no-identity changes no territory result", async () => {
+  for (const answer of [null, { committed: false, sha: "", reason: "no-identity" }, { committed: false, sha: "", reason: "protected-branch" }]) {
+    const stub = makeAgentStub({
+      "build:T1:r1": buildResult("aaaaaaa1"),
+      "commit:T1:r1": answer,
+      "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+      integrate: integrateResult(),
+    });
+    const run = runScript({ ...BASE_ARGS, territories: [T1] }, stub);
+    const result = await run;
+    assert.equal(result.territories[0].verdict, "APPROVE");
+    assert.equal(result.territories[0].blocker, null);
+    if (answer === null) assert.ok(run.logs.some((l) => /commit:T1:r1: the commit runner returned nothing/.test(l)));
+    else assert.ok(run.logs.some((l) => l.includes(`not committed (${answer.reason})`)));
+  }
+});
+
+test("lane 74 item 1: a seam-fix builder is committed on the INTEGRATION worktree, dead or alive", async () => {
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", integrationGate: "node scripts/run-tests.mjs", seam: true };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1", "f1.md"),
+    integrate: integrateResult("PASS", FULL_HEAD),
+    "seam:r1": reviewResult("NEEDS_FIXES", FULL_HEAD, "seam1.md"),
+    "seam-fix:r2": [null, buildResult("e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5")],
+    "seam:r2": reviewResult("APPROVE", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5", "seam2.md"),
+  });
+  await runScript(args, stub);
+  const labels = stub.commitCalls.map((c) => c.opts.label);
+  assert.ok(labels.includes("commit:seam-fix:r2"));
+  assert.ok(labels.includes("commit:seam-fix:r2:respawn"));
+  for (const call of stub.commitCalls.filter((c) => c.opts.label.startsWith("commit:seam-fix"))) {
+    assert.ok(call.prompt.includes("--worktree /repo/wt-integrate"));
+  }
+});
+
+test("lane 74 item 1: no Review, Integrate or Accept agent is followed by a commit runner (only builder calls are)", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult(),
+  });
+  await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
+  assert.deepEqual(stub.commitCalls.map((c) => c.opts.label), ["commit:T1:r1"]);
+});
+
+// F1 (round 1 review): the phase commit moves HEAD, so a reviewer reads the commit sha, not the
+// builder's pre-commit sha. The loop adopts the commit runner's sha so that review is not BLOCKED
+// review-sha-mismatch.
+test("lane 74 F1: a real phase commit moves HEAD and the reviewer's commit sha is accepted (territory)", async () => {
+  const X = "c".repeat(40);
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "commit:T1:r1": { committed: true, sha: X, reason: "committed" },
+    "review:T1:r1": reviewResult("APPROVE", X, "f1.md"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
+  assert.equal(result.territories[0].verdict, "APPROVE");
+  assert.equal(result.territories[0].blocker, null);
+  assert.equal(result.territories[0].sha, X);
+});
+
+test("lane 74 F1: a refused or clean phase commit leaves the builder's own sha as the review target", async () => {
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "commit:T1:r1": { committed: false, sha: "c".repeat(40), reason: "clean" },
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1", "f1.md"),
+    integrate: integrateResult(),
+  });
+  const result = await runScript({ ...BASE_ARGS, territories: [T1] }, stub);
+  assert.equal(result.territories[0].verdict, "APPROVE");
+  assert.ok(result.territories[0].sha.startsWith("aaaaaaa1"));
+});
+
+test("lane 74 F1: a real seam-fix phase commit moves HEAD and the seam re-reviewer's commit sha is accepted", async () => {
+  const X = "e".repeat(40);
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", integrationGate: "node scripts/run-tests.mjs", seam: true };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1", "f1.md"),
+    integrate: integrateResult("PASS", FULL_HEAD),
+    "seam:r1": reviewResult("NEEDS_FIXES", FULL_HEAD, "seam1.md"),
+    "seam-fix:r2": buildResult("f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5f5"),
+    "commit:seam-fix:r2": { committed: true, sha: X, reason: "committed" },
+    "seam:r2": reviewResult("APPROVE", X, "seam2.md"),
+  });
+  const result = await runScript(args, stub);
+  assert.equal(result.seam.verdict, "APPROVE");
+  assert.equal(result.seam.blocker, null);
+  assert.equal(result.seam.sha, X);
 });

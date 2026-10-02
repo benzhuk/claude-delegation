@@ -48,6 +48,7 @@ import {
   toPosix, gitRunner, mainCheckout, makeOrcaRunner, resolveSlug, isMainModule,
   notesDir, ledgerDir, recentLedgerFiles, readIfExists, readCursor, writeCursor, cursorPath, worktreePathFromEnv,
   HANDLE_RE, writeBinding, removeBinding, maybeBindPane, bindingsPath, cursorProblem,
+  resolveDetailsPath, PACKET_DETAILS_PREFIX,
 } from './transport.mjs';
 
 export const DEFAULT_DAYS = 3;
@@ -254,7 +255,7 @@ export async function runNoteInbox(argv, deps = {}) {
         continue;
       }
     }
-    const packet = e.details ? packetLocation(e, sources, fsImpl) : null;
+    const packet = e.details ? packetLocation(e, sources, fsImpl, home, env) : null;
     notes.push({
       id: e.id, from: e.from, to: e.to, kind: e.kind, needs: e.needs ?? null, by: e.by ?? null,
       re: e.re ?? null, supersedes: e.sup ?? null, details: e.details ?? null,
@@ -348,7 +349,12 @@ function resolveRealRepo(dir, git) {
 }
 
 /** Is the packet the `Details:` path names actually on disk? Checked in every repo we scanned. */
-function packetLocation(entry, sources, fsImpl) {
+function packetLocation(entry, sources, fsImpl, home, env) {
+  // Lane 74 item 5: an out-of-checkout packet (Details .agents/notes/packets/...) resolves against HOME.
+  const homed = resolveDetailsPath(entry.details, { home, env });
+  if (entry.details.startsWith(PACKET_DETAILS_PREFIX)) {
+    return { path: homed ?? entry.details, exists: homed ? fsImpl.existsSync(homed) : null };
+  }
   let checked = false;
   for (const s of sources) {
     if (s.kind !== 'repo' || !s.repo) continue;

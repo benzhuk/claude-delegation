@@ -176,6 +176,17 @@ const STATE_WRITE = {
   required: ['path', 'written'],
 }
 
+// lane 74 item 1: the phase-end commit runner's schema (the phase-commit.mjs helper's own JSON).
+const PHASE_COMMIT = {
+  type: 'object',
+  properties: {
+    committed: { type: 'boolean' },
+    sha: { type: 'string' },
+    reason: { type: 'string' },
+  },
+  required: ['committed', 'sha', 'reason'],
+}
+
 // lane 67 item 5: the second-host suite runner's schema.
 const SECOND_HOST = {
   type: 'object',
@@ -195,7 +206,7 @@ const SECOND_HOST = {
 // there... it never restates the full briefs." R9: every rendered prompt carries the
 // note-send prohibition, so it is baked into every mandate constant below.
 const BUILD_MANDATE =
-  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; never set or switch a git identity; no destructive git (reset --hard, clean, stash, force-push, rm -rf). A builder never deletes a directory, its own scratch included; a recursive delete waits on a permission prompt nobody is watching, which is how a lane lost 3.5 hours on 2026-09-26. Removal of worktrees and scratch is the lead\'s own standalone command. If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block. Never send peer notes.'
+  'Report to disk; first line of your report is VERDICT: PASS, FAIL, or BLOCKED; never set or switch a git identity; no destructive git (reset --hard, clean, stash, force-push, rm -rf). A builder never deletes a directory, its own scratch included; a recursive delete waits on a permission prompt nobody is watching, which is how a lane lost 3.5 hours on 2026-09-26. Removal of worktrees and scratch is the lead\'s own standalone command. Commit your territory to the branch of your worktree before your report and again at every stop, so uncommitted code never outlives a phase. If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block. Never send peer notes.'
 const REVIEW_MANDATE =
   'Report to disk; first line of your report is exactly `VERDICT: APPROVE <sha>` or `VERDICT: NEEDS_FIXES (<n>) <sha>`, where <sha> is the same full `git rev-parse HEAD` you report as your sha field; you never modify, stage, or commit the code under review; no destructive git. If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block. Never send peer notes.'
 const INTEGRATE_MANDATE =
@@ -432,6 +443,41 @@ function seamFixPrompt(integrationWorktree, integrationGate, findingsPath, round
   return `Seam fix round ${round}. Worktree: ${integrationWorktree}. Gate: ${integrationGate ?? 'the full-suite gate named in the integrator brief'}. Seam findings: ${findingsPath}. Apply every seam-reviewer-verified finding in one round. ${SHA_FROM_GIT} ${deadlineLine()} ${BUILD_MANDATE}`
 }
 
+// lane 74 item 1: uncommitted code never outlives a phase. After EVERY Build, Fix and seam-fix
+// agent call, including a call that returned nothing (a dead builder), one runner executes the
+// tested helper skills/team-build/references/phase-commit.mjs on that worktree: it stages
+// everything not ignored and makes one conventional commit when the tree is dirty, does nothing
+// when clean, and with no git identity or on main reports it and leaves the files. The script has
+// no fs or shell, so the commit is the runner's; its answer is only logged, never a gate, so no
+// existing return field or blocker changes meaning.
+const COMMIT_MANDATE =
+  'Your only output is the schema-forced return; run that one helper command and no other git command, never stage or commit by hand, never delete anything; never set or switch a git identity; never push. If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block. Never send peer notes.'
+
+function phaseCommitPrompt(worktree, message) {
+  return `Phase-end commit. Worktree: ${worktree}. Run \`node <plugin-root>/skills/team-build/references/phase-commit.mjs --worktree ${worktree} --message "${message}" --json\`, resolving <plugin-root> yourself as the directory that holds skills/team-build/references/phase-commit.mjs (never the worktree's own copy), and return committed, sha and reason exactly as its JSON line states them. A reason of clean, no-identity, protected-branch, detached-head, operation-in-progress, not-worktree-root or main-checkout is an answer, not an error: return it as given and do not retry or work around it. ${deadlineLine()} ${COMMIT_MANDATE}`
+}
+
+// The phase commit moves the territory HEAD, and the reviewer compares the HEAD it reads with the
+// sha the loop holds. When the commit runner reports a real commit, the loop adopts that sha as the
+// builder's sha so the review is checked against the HEAD the reviewer actually sees. A refusal, a
+// clean tree or a dead runner leaves the builder's own result untouched.
+function adoptCommit(b, c) {
+  return b && c && c.committed === true && /^[0-9a-f]{7,40}$/i.test(String(c.sha ?? '').trim()) ? { ...b, sha: String(c.sha).trim() } : b
+}
+
+async function commitPhase(worktree, label, phaseName, message) {
+  if (typeof worktree !== 'string' || worktree === '') {
+    log(`${label}: no worktree to commit`)
+    return null
+  }
+  const opts = { agentType: 'delegation:runner', model: 'sonnet', schema: PHASE_COMMIT, phase: phaseName, label }
+  const res = await agent(phaseCommitPrompt(worktree, message), opts)
+  if (res === null || res === undefined) log(`${label}: the commit runner returned nothing, worktree ${worktree} left as it was`)
+  else if (res.committed) log(`${label}: committed ${res.sha}`)
+  else if (res.reason !== 'clean') log(`${label}: not committed (${res.reason})`)
+  return res ?? null
+}
+
 // R1/R2: the accept-prep runner's prompt. A Workflow script has no fs or shell, so a
 // prompt alone can only ever be checked for its TEXT, never for the real order it runs
 // things in or whether a header edit really preserved every unowned line — "a check that
@@ -439,7 +485,7 @@ function seamFixPrompt(integrationWorktree, integrationGate, findingsPath, round
 // therefore live in accept-prep.mjs, a deterministic Node helper tested against real
 // fixture files (accept-prep.test.mjs); this prompt's only job is to render that helper's
 // ONE command exactly (R2's pinned flags and step order) and forbid any other edit path.
-function acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingItems, seam, artifactSha, reportPath) {
+function acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingItems, seam, artifactSha, reportPath, maxRoundsUsed) {
   const evidenceDestPaths = decidingItems.map((d) => `docs/work/evidence/${workId}-${d.lane}.md`)
   const copyText = decidingItems.length
     ? decidingItems.map((d, i) => `${d.path} -> ${integrationWorktree}/${evidenceDestPaths[i]}`).join('; ')
@@ -451,7 +497,7 @@ function acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, le
   // model 'opus'.
   const seamLogText = seam && seam.verdict === 'APPROVE' ? `seam r${seam.rounds} APPROVE ${seam.sha} (Opus reviewer)` : 'seam SKIPPED; territory reviews APPROVE (Opus reviewer)'
   const evidenceFlag = evidenceDestPaths.length ? evidenceDestPaths.join(',') : 'none'
-  const cmd = `node skills/team-build/references/accept-prep.mjs --record ${recordPath} --repo ${integrationWorktree} --plugin-root <resolve yourself: the dir holding scripts/work-record.mjs and scripts/build-census.mjs, never the integration worktree's own scripts/> --delivery-ref ${integrationBranch} --artifact-sha ${artifactSha} --worktree ${integrationBranch} --owner <the record's own Owner: field value — read the record first> --log-note "${seamLogText}" --evidence ${evidenceFlag} --lead <resolve leadSession \`${leadSession ?? '(none given)'}\` to its .jsonl path yourself when it is a session id rather than a path>${markerFlag} --census-out ${censusOut} --json`
+  const cmd = `node skills/team-build/references/accept-prep.mjs --record ${recordPath} --repo ${integrationWorktree} --plugin-root <resolve yourself: the dir holding scripts/work-record.mjs and scripts/build-census.mjs, never the integration worktree's own scripts/> --delivery-ref ${integrationBranch} --artifact-sha ${artifactSha} --worktree ${integrationBranch} --owner <the record's own Owner: field value — read the record first> --log-note "${seamLogText}" --evidence ${evidenceFlag} --lead <resolve leadSession \`${leadSession ?? '(none given)'}\` to its .jsonl path yourself when it is a session id rather than a path>${markerFlag} --max-rounds ${maxRoundsUsed} --census-out ${censusOut} --json`
   let p = `Accept-prep. Record: ${recordPath}. Integration worktree: ${integrationWorktree}. Integration branch: ${integrationBranch}. `
   p += `First, copy each deciding report (last territory APPROVE per territory, last seam APPROVE) to its evidence destination with original bytes, creating the destination directory if needed (source -> destination, destinations are repo-relative under ${integrationWorktree}): ${copyText}. `
   p += `Then, with the delegation plugin root (the same directory you pass as --plugin-root) as your working directory, run exactly this one command, filling in only the three bracketed values yourself (--plugin-root, --owner and --lead) and changing nothing else — this command is the ONLY way you may change the record; never hand-edit its header, its Status:, or any Log: line any other way: \`${cmd}\`. `
@@ -864,10 +910,14 @@ async function runTerritory(t) {
     phase: round === 1 ? 'Build' : 'Fix',
     label: `build:${t.id}:r${round}`,
   }
+  const commitPhaseName = round === 1 ? 'Build' : 'Fix'
   let build = await agent(buildPrompt(t, round, findingsForBuild), buildOpts1)
+  // lane 74 item 1: a builder that wrote and died (build === null) still leaves committed work.
+  build = adoptCommit(build, await commitPhase(t.worktree, `commit:${t.id}:r${round}`, commitPhaseName, `chore(${t.id}): phase-end commit after ${commitPhaseName} round ${round}`))
   if (build === null) {
     log(`${t.id}: build agent died in round ${round}, respawning once`)
     build = await agent(buildPrompt(t, round, findingsForBuild), buildOpts1)
+    build = adoptCommit(build, await commitPhase(t.worktree, `commit:${t.id}:r${round}:respawn`, commitPhaseName, `chore(${t.id}): phase-end commit after ${commitPhaseName} round ${round} respawn`))
   }
   if (build === null) {
     log(`${t.id}: build agent died twice in round ${round}, giving up`)
@@ -912,9 +962,11 @@ async function runTerritory(t) {
     phase('Fix')
     const buildOptsN = { agentType: 'delegation:builder', model: 'sonnet', schema: BUILD, phase: 'Fix', label: `build:${t.id}:r${round}` }
     build = await agent(buildPrompt(t, round, priorFindingsPath), buildOptsN)
+    build = adoptCommit(build, await commitPhase(t.worktree, `commit:${t.id}:r${round}`, 'Fix', `chore(${t.id}): phase-end commit after Fix round ${round}`))
     if (build === null) {
       log(`${t.id}: fix-round build agent died in round ${round}, respawning once`)
       build = await agent(buildPrompt(t, round, priorFindingsPath), buildOptsN)
+      build = adoptCommit(build, await commitPhase(t.worktree, `commit:${t.id}:r${round}:respawn`, 'Fix', `chore(${t.id}): phase-end commit after Fix round ${round} respawn`))
     }
     if (build === null) {
       log(`${t.id}: fix-round build agent died twice in round ${round}, giving up`)
@@ -1078,9 +1130,11 @@ if (!integrationWorktree) {
       phase('Seam')
       const seamFixOpts = { agentType: 'delegation:builder', model: 'sonnet', schema: BUILD, phase: 'Seam', label: `seam-fix:r${seamRound}` }
       let seamFixBuild = await agent(seamFixPrompt(integrationWorktree, integrationGate, priorFindings, seamRound), seamFixOpts)
+      seamFixBuild = adoptCommit(seamFixBuild, await commitPhase(integrationWorktree, `commit:seam-fix:r${seamRound}`, 'Seam', `chore(seam): phase-end commit after seam fix round ${seamRound}`))
       if (seamFixBuild === null) {
         log(`seam: fix-round build agent died in round ${seamRound}, respawning once`)
         seamFixBuild = await agent(seamFixPrompt(integrationWorktree, integrationGate, priorFindings, seamRound), seamFixOpts)
+        seamFixBuild = adoptCommit(seamFixBuild, await commitPhase(integrationWorktree, `commit:seam-fix:r${seamRound}:respawn`, 'Seam', `chore(seam): phase-end commit after seam fix round ${seamRound} respawn`))
       }
       if (seamFixBuild === null) {
         log(`seam: fix-round build agent died twice in round ${seamRound}, giving up`)
@@ -1196,7 +1250,7 @@ if (!integrationWorktree) {
 
   const acceptReportPath = `${specDirAbsolute()}/reports/accept-prep.md`
   const acceptOpts = { agentType: 'delegation:runner', model: 'sonnet', schema: ACCEPT_PREP, phase: 'Accept', label: 'accept-prep' }
-  const acceptPromptText = acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingItems, seam, expectedHead, acceptReportPath)
+  const acceptPromptText = acceptPrepPrompt(recordPath, integrationWorktree, integrationBranch, leadSession, censusMarker, workId, decidingItems, seam, expectedHead, acceptReportPath, maxRounds)
   let acceptResult = await agent(acceptPromptText, acceptOpts)
   if (acceptResult === null) {
     log('accept-prep: agent died, respawning once')

@@ -180,6 +180,19 @@ test('R3: a withdrawn record is excluded from the counts entirely, not counted a
   assert.doesNotMatch(out.stderr, /malformed/, 'withdrawn is a known status - it must not be counted as malformed either');
 });
 
+test('lane 73: the lane status words (open, NEEDS BEN, NEEDS <peer>, FAILED) are known, not counted as malformed', () => {
+  const home = fixtureHome();
+  const cwd = fixtureProject();
+  writeRecord(cwd, { work: 'wr-2026-09-23-lane-open', status: 'open' });
+  writeRecord(cwd, { work: 'wr-2026-09-23-lane-needs-ben', status: 'NEEDS BEN' });
+  writeRecord(cwd, { work: 'wr-2026-09-23-lane-needs-peer', status: 'NEEDS skills-o' });
+  writeRecord(cwd, { work: 'wr-2026-09-23-lane-failed', status: 'FAILED' });
+  writeRecord(cwd, { work: 'wr-2026-09-21-still-runnable', status: 'runnable' });
+  const out = runHook('UserPromptSubmit', home, cwd);
+  assert.ok(out.json, 'the genuinely runnable record still prints');
+  assert.doesNotMatch(out.stderr, /malformed/, 'the lane words are known statuses');
+});
+
 test('T2/C3: Stop prints systemMessage only, never a decision', () => {
   const home = fixtureHome();
   const cwd = fixtureProject();

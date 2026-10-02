@@ -44,11 +44,12 @@ force-push, a DB or flag change, a git identity change, or the approval of any p
   disposable worktree. Every line is also mirrored to `~/.agents/notes/YYYY-MM-DD.md` on the sending
   machine, which no worktree deletion can reach. Repos carry `docs/ledger/*.md merge=union` in
   `.gitattributes` so concurrent appends never conflict.
-- Detail packet: `<repo>/docs/notes/<id>.md`, ALWAYS in the RECIPIENT's repo (resolved from the
-  recipient pane's `worktreePath` main checkout). A cross-host note is sent by running note-send on the
+- Detail packet: `~/.agents/notes/packets/<repo-name>/<id>.md` (Details is the home-relative
+  `.agents/notes/packets/<repo-name>/<id>.md`), ALWAYS on the RECIPIENT's host and never inside a checkout
+  (the repo name is resolved from the recipient pane's `worktreePath` main checkout). Older
+  `docs/notes/<id>.md` Details still resolve against the repo. A cross-host note is sent by running note-send on the
   recipient's host (transport step 7), so this holds there too. Written by `--packet-file <path|->`
-  (stdin) before the ledger line; never overwritten without `--force`. Committed with the session's
-  next normal commit.
+  (stdin) before the ledger line; never overwritten without `--force`. Not committed: it lives outside the repo.
 - Packet template:
 
 ```

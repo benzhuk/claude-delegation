@@ -3,14 +3,16 @@
 // scripts/build-census.mjs> --delivery-ref <branch> --artifact-sha <40-hex> --worktree
 // <branch> --owner <slug> --log-note <text> --evidence <path>[,<path>...] --lead <lead
 // .jsonl> [--from <iso> | --marker <text>] --census-out <repo-relative .md> [--now <iso>]
-// [--json]
+// [--max-rounds <n>] [--workflow <run id>] [--json]
 //
 // Contracts R1/R2 (docs/specs/one-launch-2/contracts.md): a Workflow script (build-loop-
 // workflow.js) has no fs or shell, so the order and header-preservation guarantees for
 // accept-prep move into this deterministic, directly-testable Node helper. It runs, IN
 // THIS ORDER, each only after the previous succeeded:
 //   1. Edit the record's header IN PLACE — change ONLY Status:, Artifact:, Worktree:
-//      (insert if absent), Evidence: (merge, dedupe, keep order) and append ONE Log: line.
+//      (insert if absent), Evidence: (merge, dedupe, keep order), Workflow: (only when the
+//      record names a run, or --workflow gives one: set to `<run id> maxRounds=<n>`, n from
+//      --max-rounds, default 3) and append ONE Log: line.
 //      Every other byte of the file (including line endings) is preserved. Written
 //      atomically (temp file + rename in the same directory).
 //   2. Run scripts/build-census.mjs from --plugin-root, AFTER step 1, so the census is
@@ -31,7 +33,11 @@ const FLAG_KEYS = new Map([
   ["--delivery-ref", "deliveryRef"], ["--artifact-sha", "artifactSha"], ["--worktree", "worktree"],
   ["--owner", "owner"], ["--log-note", "logNote"], ["--evidence", "evidence"], ["--lead", "lead"],
   ["--from", "from"], ["--marker", "marker"], ["--census-out", "censusOut"], ["--now", "now"],
+  ["--max-rounds", "maxRounds"], ["--workflow", "workflow"],
 ]);
+
+// The build loop's round bound when --max-rounds is omitted (build-loop-workflow.js maxRounds).
+export const DEFAULT_MAX_ROUNDS = 3;
 const REQUIRED_KEYS = [
   "recordPath", "repo", "pluginRoot", "deliveryRef", "artifactSha", "worktree", "owner",
   "logNote", "evidence", "lead", "censusOut",
@@ -70,6 +76,12 @@ export function parseArgs(argv) {
   }
   if (!/^[0-9a-fA-F]{40}$/.test(opts.artifactSha)) {
     throw new AcceptPrepError(`--artifact-sha must be exactly 40 hex characters: ${opts.artifactSha}`, "bad-args");
+  }
+  if (opts.maxRounds !== undefined && !/^\d+$/.test(String(opts.maxRounds))) {
+    throw new AcceptPrepError(`--max-rounds must be a non-negative integer: ${opts.maxRounds}`, "bad-args");
+  }
+  if (opts.workflow !== undefined && (opts.workflow.trim() === "" || /^none\b/i.test(opts.workflow.trim()))) {
+    throw new AcceptPrepError(`--workflow must be a run id, not "${opts.workflow}"`, "bad-args");
   }
   if (opts.now !== undefined && Number.isNaN(Date.parse(opts.now))) {
     throw new AcceptPrepError(`--now is not a parseable timestamp: ${opts.now}`, "bad-args");
@@ -234,6 +246,27 @@ export function editRecord(opts) {
     headerEnd += 1;
   }
   changed.push("Worktree");
+
+  // lane 73 (F1): the record's Workflow: line carries the round bound actually used. Only a
+  // record that names a run (an existing non-`none` value, or --workflow) is touched; a
+  // `none, <reason>` line, or no line and no --workflow, is left exactly as it is.
+  const workflowMatch = matchField(lines, headerEnd, "Workflow");
+  const existingWorkflow = workflowMatch ? workflowMatch.value.trim() : "";
+  const namesRun = existingWorkflow !== "" && !/^none\b/i.test(existingWorkflow);
+  if (opts.workflow !== undefined || namesRun) {
+    const runId = (opts.workflow !== undefined ? opts.workflow : existingWorkflow)
+      .replace(/\s+maxRounds=\S*\s*$/i, "").trim();
+    const rounds = opts.maxRounds !== undefined ? Number(opts.maxRounds) : DEFAULT_MAX_ROUNDS;
+    const workflowText = `${runId} maxRounds=${rounds}`;
+    if (workflowMatch) {
+      lines[workflowMatch.idx].text = `${workflowMatch.prefix}${workflowText}`;
+    } else {
+      const insertAt = lastSingletonIdx(lines, headerEnd) + 1;
+      insertLine(lines, insertAt, `Workflow: ${workflowText}`, eol);
+      headerEnd += 1;
+    }
+    changed.push("Workflow");
+  }
 
   const now = opts.now ?? new Date().toISOString();
   const logLineText = formatLogLine(now, "reviewed", opts.owner, opts.logNote);
