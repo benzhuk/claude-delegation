@@ -93,3 +93,13 @@ test("parseProgressLine / parseProgressValue: the one line shape, shared with la
   assert.equal(parseProgressLine("Now: a | To finish: c | Est: 1 day | extra"), null);
   assert.equal(parseFirstLine("DONE (2 of 2 steps done)").state, "DONE");
 });
+
+test("item 4: docs/components.md header names the hook card line format once, the same shape as report line 2", () => {
+  const text = fs.readFileSync(path.join(HERE, "..", "docs", "components.md"), "utf8");
+  const header = text.slice(0, text.indexOf("-->"));
+  const shape = "<name>: Now: <one line> | To finish: <one line> | Est: <duration>";
+  assert.equal(header.split(shape).length - 1, 1);
+  assert.match(header, /report-check\.mjs\s+parseProgressLine/);
+  // the example in the header is itself a valid progress line
+  assert.ok(parseProgressLine("Now: done | To finish: nothing | Est: none"));
+});
