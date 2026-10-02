@@ -492,6 +492,7 @@ describe("review round 1 fixes", () => {
     const unpushed = second.rows.filter((r) => r.status === "unpushed-archive" && r.repo === repo);
     assert.ok(unpushed.length >= 1, "the local archive branch is reported");
     assert.equal(unpushed[0].action, "report-only");
+    assert.match(unpushed[0].detail, /narrow fetch refspec/, "the row names the narrow-refspec false positive");
     assert.equal(git(["show", `${unpushed[0].branch}:u.txt`], repo), "untracked\n", "the archived work is intact on that branch");
   });
 
@@ -616,7 +617,7 @@ describe("main() wiring: existing runs unchanged, sweep is opt-in", () => {
     const { repo, bare } = makeRepo("live", "iso-live");
     const wt = dirtyOrphan(repo, "feature/live", "live");
     writePolicy([CLASS_IDS.dirtyWorktree]);
-    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { cwd: wt, stdio: "ignore" });
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { cwd: wt, stdio: "ignore", env: th.env });
     try {
       await new Promise((resolve) => setTimeout(resolve, 400));
       const r = runMain(["--apply"], { sweepOpts: { roots: [{ kind: "code", path: path.join(CODE, "iso-live") }] }, now: Date.now() + 2 * DAY });

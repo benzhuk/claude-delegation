@@ -2573,7 +2573,8 @@ test("J1 round 2 MINOR 3: a fetch failure's error text is exactly one line, even
 });
 
 test("J1 round 2 MINOR 4: fetchOrigin's own git call is bounded by a timeout and disables an interactive terminal/credential prompt", () => {
-  const src = fs.readFileSync(path.join(import.meta.dirname, "janitor.mjs"), "utf8");
+  // Normalise line endings: a Windows checkout may hold this source as CRLF, and the regex below anchors on "\n}\n".
+  const src = fs.readFileSync(path.join(import.meta.dirname, "janitor.mjs"), "utf8").replace(/\r\n/g, "\n");
   const stripped = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
   const fnMatch = /export function fetchOrigin\(root\) \{[\s\S]*?\n\}\n/.exec(stripped);
   assert.ok(fnMatch, "fetchOrigin must be found in the source");

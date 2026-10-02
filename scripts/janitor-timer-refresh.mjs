@@ -127,7 +127,7 @@ export function refreshIfRegistered({
     }
     return { action: "refreshed", reason: `re-registered from ${pluginRoot} (was ${baked || "unreadable"})`, code };
   }
-  return { action: code === 1 ? "refused" : "failed", reason: lines.join("").trim().split("\n")[0] || `installer exit ${code}`, code };
+  return { action: code === 1 ? "refused" : "failed", reason: (lines.join("").trim().split("\n")[0] || `installer exit ${code}`).replace(/^refused:\s*/, ""), code };
 }
 
 function isMainModule() {
