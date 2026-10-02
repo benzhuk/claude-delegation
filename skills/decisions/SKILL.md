@@ -109,8 +109,8 @@ render-guard).
 The page callout's owner instruction is composed by `decisions-render.mjs render` itself
 (the callout icon and text are the renderer's, never hand-typed): "To comment, start a
 line with `**` anywhere on this page, then tick Done to submit; the answer appears here
-and the exchange is kept in that day's history file." (the callout's position, right
-after History and before Done, is checked by `decisions-render.test.mjs`; its exact
+and the exchange is kept in that day's history file." (the callout's position, the second to last block
+inside the Waiting toggle, right before Done, is checked by `decisions-render.test.mjs`; its exact
 wording is not — a future change to `COMMENT_CALLOUT` in `decisions-render-core.mjs`
 would leave this quote stale again)
 
@@ -139,9 +139,10 @@ re-checked) and whose owner inputs still match (or, for a round accounted from N
 whose fresh inputs add nothing or are all quoted in origin history) (checked by
 `decisions-render-publish.test.mjs` and `decisions-pickup.test.mjs`).
 
-The page is composed only of the sections `decisions-render.mjs render` builds —
-`# Waiting on you now`, `# What is going on`, `# This session (since your tick at …)`,
-and `# History` — never a hand-added section; there is no `# Closed` section any more (a
+The page is composed only of the toggles `decisions-render.mjs render` builds —
+`Goal card`, `Bearings`, `Components`, `Waiting on you now` (which holds the items, `What is going on`,
+`This session (since your tick at …)`, the comment callout and the Done checkbox) and `History` —
+never a hand-added section (the shape and its reasons are under "Page shape" below); there is no `# Closed` section any more (a
 closed item's record lives in `docs/decisions/history/<today>.md`, per "Closing" below).
 Status narrative and logs live in the repo (`docs/work`, `docs/ledger`), not on this page
 (not checked).
@@ -359,12 +360,37 @@ change nothing (checked by `scripts/decisions-read.mjs`).
 - DUE: the item's `Default after …` deadline passed unanswered (reported by
   `scripts/decisions-read.mjs`). Apply the default, tell the owner in the same
   message, and close the item (not checked).
-- WARN: the page is broken — Done missing, misplaced, indented, or duplicated, or a
+- WARN: the page is broken — Done missing, misplaced, indented outside the Waiting toggle, or duplicated, or a
   `Default` line off-shape (checked by `scripts/decisions-read.mjs`). Rewrite older
   wording into the required shape and fix before trusting anything else (not checked).
 - OPEN: nothing to do. REPLIED: nothing to do until the hand-back check lists the pair
   as an `ARCHIVE` line; then archive it as above (reported by
   `scripts/decisions-handback.mjs`).
+
+## Page shape
+
+The page is a few toggles, named for what the owner looks for, with the detail nested inside
+each one; the renderer is the only writer of that shape, and every future session follows it
+without being told. The owner's rule, 10/1: "part of writing the notion is that everything
+should be in toggles planned in an intelligent way to make it easy for me to find a section
+then zoom in. make that part of the skill so the notion is always written in the best way by
+all future sessions, not just remembering from your context. the done checkbox should be in the
+'Waiting on you now' section at the end."
+
+- Top level is toggles only: `Goal card`, `Bearings`, `Components`, `Waiting on you now`,
+  `History` (checked by page-lint's `top-level-toggle` rule, which `render` runs).
+- The first three are agent-owned and regenerated on every publish from the repo, never
+  hand-edited: the card from `docs/goals/card.md` with its `main at <sha>`, bearings from the
+  newest assessment and response under `docs/work/evidence/`, components from
+  `docs/components.md` (checked by `decisions-render-sections.mjs`; a components line that names a
+  `skills/`, `scripts/` or `hooks/` path absent from origin/main refuses the publish).
+- The Done checkbox the owner ticks to hand back is the LAST block inside `Waiting on you now`;
+  the reader, the pickup, `publish` and the hand-back all read it there (checked by
+  `decisions-read.test.mjs`; a legacy column-zero Done still parses). The hand-back also compares
+  the card toggle's `main at <sha>` to the head, like the Goals page (checked by
+  `decisions-handback.mjs`).
+- Full section list, order, and how a new section is added: `references/page-shape.md`; the same
+  rule for any other Notion page is cross-referenced from `skills/notion-writing`.
 
 ## Closing
 

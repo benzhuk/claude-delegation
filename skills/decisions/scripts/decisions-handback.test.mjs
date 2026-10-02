@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 
 import { childEnv } from '../../multi/scripts/test-child-env.mjs';
 import {
-  run, extractPageSha, shaMatch, computeToday, countNotesToday, agentsHome, killSwitchActive,
+  run, extractPageSha, extractCardToggleSha, shaMatch, computeToday, countNotesToday, agentsHome, killSwitchActive,
   titleTimeMillis,
 } from './decisions-handback.mjs';
 import { formatTitle } from './decisions-title.mjs';
@@ -1281,4 +1281,68 @@ test('NEVER exit 2: every case above stays inside {0, 1, 3}', () => {
     }).exitCode, // blocked -> 1
   ];
   for (const code of cases) assert.ok([0, 1, 3].includes(code), `unexpected exit code ${code}`);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 72: the Goal card toggle on the decisions page (spec scope items 3 and 7)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TOGGLES_CLEAN = fixture('decisions-toggles-clean.md'); // card toggle "main at 889887a", Done nested last in Waiting
+const NO_GOALS = { readGoalsParentPage: () => ({ configured: false }) };
+const toggleArgv = (head) => ['--decisions', 'd', '--repo', 'r', '--head', head, '--today', '9-22'];
+
+test('extractCardToggleSha: reads the sha from the first child line of the Goal card toggle only', () => {
+  assert.deepEqual(extractCardToggleSha(TOGGLES_CLEAN), { present: true, sha: '889887a' });
+  assert.deepEqual(extractCardToggleSha(fixture('decisions-toggles-card-nosha.md')), { present: true, sha: null });
+  assert.deepEqual(extractCardToggleSha(CLEAN_DECISIONS), { present: false, sha: null }, 'a legacy page has no toggle to check');
+  const strayElsewhere = L('# Waiting on you now {toggle="true"}', '\tmain at deadbee', '\t<empty-block/>', '# Goal card {toggle="true"}', '\tmain at 889887a');
+  assert.equal(extractCardToggleSha(strayElsewhere).sha, '889887a', 'a "main at" outside the card toggle never counts');
+});
+
+test('card toggle: a matching head is clean, and a nested Done last in the Waiting toggle raises no Done warning', () => {
+  const { exitCode, stdout } = runWith({ argv: toggleArgv('889887abcdef'), files: { d: TOGGLES_CLEAN }, ...NO_GOALS });
+  assert.equal(exitCode, 0, stdout);
+  assert.doesNotMatch(stdout, /WARN/);
+  assert.match(stdout, /HANDBACK ok\n$/);
+});
+
+test('card toggle: a stale card sha blocks with the exact WARN text, the same way a stale Goals page sha does', () => {
+  const { exitCode, stdout } = runWith({ argv: toggleArgv('ddddddd'), files: { d: TOGGLES_CLEAN }, ...NO_GOALS });
+  assert.equal(exitCode, 1);
+  assert.match(stdout, /^WARN\tdecisions card toggle stale: page 889887a, head ddddddd$/m);
+  assert.match(stdout, /HANDBACK blocked\n$/);
+});
+
+test('card toggle: the head is derived from git when --head is not given, over the same two goal sources', () => {
+  const calls = [];
+  const { exitCode, stdout } = runWith({
+    argv: ['--decisions', 'd', '--repo', 'the-repo', '--today', '9-22'],
+    files: { d: TOGGLES_CLEAN },
+    execGit: (args, cwd) => { calls.push({ args, cwd }); return 'ddddddd\n'; },
+    ...NO_GOALS,
+  });
+  assert.deepEqual(calls, [{
+    args: ['log', '-1', '--format=%h', 'origin/main', '--', 'docs/GOALS.md', 'docs/goals/card.md'],
+    cwd: 'the-repo',
+  }]);
+  assert.equal(exitCode, 1);
+  assert.match(stdout, /WARN\tdecisions card toggle stale: page 889887a, head ddddddd/);
+});
+
+test('card toggle: a Goal card toggle with no "main at <sha>" first line blocks', () => {
+  const { exitCode, stdout } = runWith({ argv: toggleArgv('889887a'), files: { d: fixture('decisions-toggles-card-nosha.md') }, ...NO_GOALS });
+  assert.equal(exitCode, 1);
+  assert.match(stdout, /^WARN\tdecisions card toggle missing sha line$/m);
+});
+
+test('card toggle: a legacy page with no Goal card toggle is not checked and does not need git', () => {
+  const { exitCode, stdout } = runWith({ argv: toggleArgv('ddddddd'), files: { d: CLEAN_DECISIONS }, ...NO_GOALS });
+  assert.equal(exitCode, 0, stdout);
+  assert.doesNotMatch(stdout, /decisions card toggle/);
+});
+
+test('Done nested in the Waiting toggle: a block after it inside the toggle still warns "Done is not the last line"', () => {
+  const { exitCode, stdout } = runWith({ argv: toggleArgv('889887a'), files: { d: fixture('decisions-toggles-done-not-last.md') }, ...NO_GOALS });
+  assert.equal(exitCode, 1);
+  assert.match(stdout, /WARN\tDone is not the last line/);
 });

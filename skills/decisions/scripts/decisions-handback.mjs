@@ -123,6 +123,25 @@ export function shaMatch(a, b) {
   return x.startsWith(y) || y.startsWith(x);
 }
 
+/**
+ * Lane 72: the decisions page carries a `# Goal card {toggle="true"}` section whose first child
+ * line is `main at <sha>`, the same sha the Goals page mirror prints. Returns `{ present, sha }`:
+ * `present` is false for a legacy page with no such toggle (nothing to check), `sha` is null when
+ * the toggle exists but its first child line carries no `main at <sha>`.
+ */
+export function extractCardToggleSha(text) {
+  const lines = String(text).split(/\r\n|\n/);
+  const openIdx = lines.findIndex((l) => /^#[ \t]+Goal card[ \t]+\{[^}]*\btoggle="true"[^}]*\}[ \t]*$/.test(l));
+  if (openIdx === -1) return { present: false, sha: null };
+  for (let i = openIdx + 1; i < lines.length; i += 1) {
+    if (/^#[ \t]/.test(lines[i])) break;
+    if (lines[i].trim() === '') continue;
+    const m = /\bmain at ([0-9A-Za-z]+)/.exec(lines[i]);
+    return { present: true, sha: m ? m[1] : null };
+  }
+  return { present: true, sha: null };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // C5 second half: the `--title-meta` check. `decisions-title.mjs set` retitles the page as the
 // last step of any job that edits it (SKILL.md's new Page rules sentence); this is the read-side
@@ -539,17 +558,31 @@ function runCheck(args, env, readFile, execGit, writeOut, readGoalsParentPage, r
     mirrorSummary = 'goals mirror at none (not configured)';
   }
 
+  // Lane 72 (spec scope item 3): the card toggle on the decisions page is compared to the head the
+  // same way the Goals page sha is. A legacy page with no Goal card toggle has nothing to check.
+  let cardWarnLine = null;
+  const cardToggle = extractCardToggleSha(decisionsText);
+  if (cardToggle.present) {
+    if (cardToggle.sha === null) {
+      cardWarnLine = 'WARN\tdecisions card toggle missing sha line';
+    } else {
+      const cardHead = computeHeadSha(args.repo, args.head, execGit);
+      if (!shaMatch(cardToggle.sha, cardHead)) cardWarnLine = `WARN\tdecisions card toggle stale: page ${cardToggle.sha}, head ${cardHead}`;
+    }
+  }
+
   const printed = [...decisionsOffending, ...shapeOffending];
   if (driftLine) printed.push(driftLine);
   if (doneLine) printed.push(doneLine);
   printed.push(...archive);
   printed.push(...goalsOffending);
   if (shaWarnLine) printed.push(shaWarnLine);
+  if (cardWarnLine) printed.push(cardWarnLine);
   printed.push(titleCheck.line);
   for (const line of printed) writeOut(`${line}\n`);
 
   const clean = decisionsOffending.length === 0 && shapeOffending.length === 0 && !doneLine
-    && !driftLine && goalsOffending.length === 0 && !shaWarnLine && !titleCheck.blocks;
+    && !driftLine && goalsOffending.length === 0 && !shaWarnLine && !cardWarnLine && !titleCheck.blocks;
   if (killSwitchActive(env)) {
     writeOut('HANDBACK disabled\n');
     return 0;
