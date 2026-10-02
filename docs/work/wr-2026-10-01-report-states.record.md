@@ -5,7 +5,7 @@ Status: reviewed
 Authority: build and review on branch build/report-states-73; merge into main under the 2026-09-26 standing grant; no release, no install
 Next: build-loop Workflow run, suites on Netcup and Hetzner, accept, merge-check, merge, RESULT to skills-f
 Artifact: build/report-states-73@19401d255026b426049af587ad7ac4bb4017a859
-Evidence: docs/work/evidence/wr-2026-10-01-report-states-states73.md
+Evidence: docs/work/evidence/wr-2026-10-01-report-states-states73.md, docs/work/evidence/wr-2026-10-01-report-states-suites.md
 Worktree: build/report-states-73
 Scratch: C:/Users/benzh/AppData/Local/Temp/claude/C--Users-benzh-Code-zhuk-infra-claude-delegation/a7e8fc6b-cbf3-476b-aaea-23ad30508174/scratchpad/lane-73
 Opened: 2026-10-02T00:50:00.000Z
