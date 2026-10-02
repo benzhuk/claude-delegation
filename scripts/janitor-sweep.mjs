@@ -92,8 +92,20 @@ function row(cls, fields) {
   return { class: cls, repo: "", path: "", branch: "", status: "", action: "", detail: "", ...fields };
 }
 
+function headSha(dir) {
+  const r = git(["rev-parse", "HEAD"], dir);
+  return r.ok ? r.out.trim() : "";
+}
+
+/** Tips (full shas) of the repo's local archive/* branches. */
+function localArchiveTips(repo) {
+  const r = git(["for-each-ref", "--format=%(objectname)", "refs/heads/archive/"], repo);
+  return new Set(r.ok ? r.out.split("\n").map((s) => s.trim()).filter(Boolean) : []);
+}
+
 function sweepWorktrees(ctx, repo, list, records, rows) {
   let owned = 0;
+  const archiveTips = localArchiveTips(repo);
   for (const wt of list) {
     if (wt.main || wt.bare) continue;
     if (isExcludedPath(wt.path, { home: ctx.home, exclude: ctx.exclude })) continue; // the exclude list and BTO/dotfiles apply to registered worktrees too
@@ -115,15 +127,17 @@ function sweepWorktrees(ctx, repo, list, records, rows) {
       rows.push(row(CLASS_IDS.dirtyWorktree, { repo, path: wt.path, branch: wt.branch || "", status: "orphan", action: "keep", detail: "git status unreadable" }));
       continue;
     }
-    if (counts.dirty === 0 && counts.ignored === 0) continue; // clean: the SAFE class and the branch class own it
+    if (counts.dirty === 0 && counts.ignored === 0) {
+      // Archived and pushed, but git refused the removal: clean, detached at an archive tip. Keep reporting it.
+      if (!wt.branch && archiveTips.has(headSha(wt.path))) {
+        rows.push(row(CLASS_IDS.dirtyWorktree, { repo, path: wt.path, branch: "(detached)", status: "archived", action: "report-only", detail: "archived; removal refused earlier, needs a hand" }));
+      }
+      continue; // otherwise clean: the SAFE class and the branch class own it
+    }
     const base = { repo, path: wt.path, branch: wt.branch || "(detached)", status: "orphan" };
     const idle = ctx.deps.idleHours(wt.path, { home: ctx.home, now: ctx.nowMs });
     if (!Number.isFinite(idle) || idle < IDLE_FLOOR) {
       rows.push(row(CLASS_IDS.dirtyWorktree, { ...base, action: "keep", detail: `dirty (${counts.dirty} changed, ${counts.ignored} ignored); idle ${Number.isFinite(idle) ? `${Math.floor(idle)}h < ${IDLE_FLOOR}h` : "unknown"}` }));
-      continue;
-    }
-    if (ctx.deps.pathHasOpenProcess(wt.path) !== false) {
-      rows.push(row(CLASS_IDS.dirtyWorktree, { ...base, action: "keep", detail: "a process holds this directory (or it could not be checked)" }));
       continue;
     }
     if (counts.ignored > 0) {
@@ -138,6 +152,11 @@ function sweepWorktrees(ctx, repo, list, records, rows) {
     }
     if (!ctx.acts(CLASS_IDS.dirtyWorktree)) {
       rows.push(row(CLASS_IDS.dirtyWorktree, { ...base, action: "would-archive-then-remove", detail: `${counts.dirty} changed path(s), idle ${Math.floor(idle)}h; report mode` }));
+      continue;
+    }
+    // The in-use check is a rename on win32: it runs only for a class that is about to act (report mode never touches a tree).
+    if (ctx.deps.pathHasOpenProcess(wt.path) !== false) {
+      rows.push(row(CLASS_IDS.dirtyWorktree, { ...base, action: "keep", detail: "a process holds this directory (or it could not be checked)" }));
       continue;
     }
     if (!ctx.repoVerified(repo)) {
@@ -264,10 +283,6 @@ function sweepDeregistered(ctx, scan, registered, rows) {
       rows.push(row(CLASS_IDS.deregistered, { ...base, action: "keep", detail: `dirty (${counts.dirty} changed); idle ${Number.isFinite(idle) ? `${Math.floor(idle)}h < ${IDLE_FLOOR}h` : "unknown"}` }));
       continue;
     }
-    if (ctx.deps.pathHasOpenProcess(folder.path) !== false) {
-      rows.push(row(CLASS_IDS.deregistered, { ...base, action: "keep", detail: "a process holds this directory (or it could not be checked)" }));
-      continue;
-    }
     const btoRemote = matchedExcludedRemote(folder.path, ctx.excludeRemotes);
     if (btoRemote) {
       rows.push(row(CLASS_IDS.deregistered, { ...base, action: "keep", detail: `excluded (BTO remote: origin matches ${btoRemote})` }));
@@ -275,6 +290,11 @@ function sweepDeregistered(ctx, scan, registered, rows) {
     }
     if (!ctx.acts(CLASS_IDS.deregistered)) {
       rows.push(row(CLASS_IDS.deregistered, { ...base, action: "would-archive", detail: `${counts.dirty} changed path(s), ${counts.ignored} ignored; report mode, then removal only via reclaim` }));
+      continue;
+    }
+    // The in-use check is a rename on win32: it runs only for a class that is about to act.
+    if (ctx.deps.pathHasOpenProcess(folder.path) !== false) {
+      rows.push(row(CLASS_IDS.deregistered, { ...base, action: "keep", detail: "a process holds this directory (or it could not be checked)" }));
       continue;
     }
     const r = archiveCheckout({ dir: folder.path, name: path.basename(folder.path), excludeRemotes: ctx.excludeRemotes });

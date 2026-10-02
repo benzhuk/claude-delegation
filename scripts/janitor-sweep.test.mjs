@@ -659,3 +659,36 @@ describe("main() wiring: existing runs unchanged, sweep is opt-in", () => {
     }
   });
 });
+
+describe("review round 2 fixes", () => {
+  test("NEW MAJOR A: report mode and an empty act list never call the in-use probe", () => {
+    const { repo } = makeRepo("noprobe", "iso-noprobe");
+    const wt = dirtyOrphan(repo, "feature/noprobe", "noprobe");
+    const { stray } = makeStray(repo, "stray-noprobe");
+    let calls = 0;
+    const depsOver = { pathHasOpenProcess: () => { calls += 1; return false; } };
+    for (const opts of [{ apply: false }, { apply: true, act: [] }, { apply: true, act: [CLASS_IDS.untracked] }]) {
+      const res = sweep({ ...opts, group: "iso-noprobe", depsOver });
+      assert.equal(wtRows(res, wt)[0].action, "would-archive-then-remove");
+      assert.equal(res.rows.find((r) => r.path === stray).action, "would-archive");
+    }
+    assert.equal(calls, 0, "the probe renames on win32; it runs only where a class acts");
+    assert.ok(fs.existsSync(wt) && fs.existsSync(stray));
+  });
+
+  test("MINOR C: a worktree archived but not removed keeps showing as a report-only row", () => {
+    const { repo } = makeRepo("stall", "iso-stall");
+    const sha = git(["rev-parse", "HEAD"], repo).trim();
+    git(["branch", `archive/stall-${sha.slice(0, 7)}`, sha], repo);
+    const wt = path.join(repo, ".claude", "worktrees", "stall");
+    git(["worktree", "add", "-q", "--detach", wt, sha], repo);
+    const res = sweep({ apply: true, act: [CLASS_IDS.dirtyWorktree], group: "iso-stall" });
+    const rows = wtRows(res, wt);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].action, "report-only");
+    assert.match(rows[0].detail, /removal refused earlier, needs a hand/);
+    assert.ok(fs.existsSync(wt), "nothing acts");
+    git(["branch", "-D", `archive/stall-${sha.slice(0, 7)}`], repo);
+    assert.equal(wtRows(sweep({ apply: true, act: [CLASS_IDS.dirtyWorktree], group: "iso-stall" }), wt).length, 0, "no archive branch, no row");
+  });
+});
