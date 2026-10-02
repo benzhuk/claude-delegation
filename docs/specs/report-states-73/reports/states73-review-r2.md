@@ -1,111 +1,50 @@
-VERDICT: APPROVE 0c7b14fec626fd432b3c4e90cf4a1cae09f341cd
+VERDICT: APPROVE 19401d255026b426049af587ad7ac4bb4017a859
 
-# states73 review, round 2 (delta re-review, lane 73, wr-2026-10-01-report-states)
+# states73 review, round 2: delta re-review of the suite findings fix
 
-Worktree wt-report-states-73-states73, branch build/report-states-73-states73. I ran `git rev-parse HEAD` there myself and got 0c7b14fec626fd432b3c4e90cf4a1cae09f341cd. The range 658efde1..HEAD is one commit, 0c7b14fe. `git status --short` printed nothing before and after the review. I edited nothing in the worktree. Mutation checks ran on a `git archive HEAD` copy in scratch (`lane-73/r2copy`).
+HEAD (git rev-parse HEAD in lane-73): 19401d255026b426049af587ad7ac4bb4017a859
+Range: 8da75eab31507962a13f3a17cae9e823b6633086..HEAD. Two commits:
+- 6fc9cd94 (lead, docs only: reports, docs/work evidence/record/loop-state).
+- 19401d25 (builder): scripts/report-check.test.mjs (+5/-2) and the builder report. That is the only code change in the range.
 
-Counts: 0 BLOCKER, 0 MAJOR, 3 MINOR.
+Blockers: 0. Majors: 0. Minors: 1.
 
-## Gate (run by me)
-The territory Gate command, redirected to scratch `lane-73/review-gate-r2.log`: exit 0, 1136 tests, 1136 pass, 0 fail, 0 `not ok` lines. That is round 1's 1132 plus the 4 new tests, and matches the builder's figure.
-Extra consumer run (`lane-73/review-consumers-r2.log`): collect-status, collect-from-origin, four-read (including completeness), skills/team-build/references/*.test.mjs, skills/delegate/references/*.test.mjs and bugfix-fields. Exit 0, 386 of 386.
-I did not run the full suite (Windows; the lead runs it).
+## Prior finding F1 (blocker, N2 env-inheritance guard): FIXED, verified
+- scripts/report-check.test.mjs:9 imports makeTempHome from ./test-home.mjs. Line 17 builds one sealed home (`const SEALED = makeTempHome()`). Line 18 (runCli) and line 98 (the no-argument spawnSync) both pass `env: SEALED.env`. Those are the two sites the suite named (old lines 15 and 95).
+- The guard test was not touched. `git diff 8da75eab..HEAD -- skills/` is empty, and the only script change is the one test file.
+- Run: `node --test scripts/report-check.test.mjs` gives exit 0, 16 pass, 0 fail.
+- Run: `node --test --test-name-pattern=N2 skills/multi/scripts/hooks.test.mjs` gives exit 0, 16 pass, 0 fail. This includes "N2: no test file in this suite inherits the runner environment on its own", the test that failed on Netcup and Hetzner at 6fc9cd94.
+- Cleanup: the sealed home is never cleaned up explicitly. makeTempHome registers each directory and removes it with an exit/signal handler (scripts/test-home.mjs:114-116). scripts/prefix-test.test.mjs:35 uses the same pattern, so nothing leaks.
+- I did not run a mutation check. The scanner (findEnvLessSpawns, skills/multi/scripts/hooks.test.mjs:605) is not exported, so I could not run it on the base file without writing to the tree. The discriminating evidence is the suite failure at 6fc9cd94: it named exactly these two lines, and this commit changes only them.
 
-## Prior findings, verified
+## Prior finding F2 (record Workflow line has no maxRounds): answered, claims verified
+- accept-prep rewrites any Workflow value that names a run to `<run id> maxRounds=<n>`, replacing a stale bound. It inserts the line when --workflow is given and leaves `none, ...` alone. Code: skills/team-build/references/accept-prep.mjs:250-268, with DEFAULT_MAX_ROUNDS = 3 at :40.
+- The build loop passes the bound it actually used. build-loop-workflow.js:476-477 computes `maxRounds` (args.maxRounds, default 3), :1199 passes it to acceptPrepPrompt, and :454 emits `--max-rounds ${maxRoundsUsed}`.
+- The check applies only on or after the cutoff. scripts/work-record.mjs:226 sets MAXROUNDS_FROM = 2026-10-02T03:00:00Z, and :247-258 refuses only when Spec-from is on or after that. This record's Spec-from is 2026-10-02T00:50:00Z (docs/work/wr-2026-10-01-report-states.record.md:14), so the check does not apply, as the builder says.
+- Why the 03:21:40Z accept-prep run still left `Workflow: wf_1a816e86-f8d` without a bound: that run used the plugin root, the main checkout (reports/accept-prep.md: "cwd = plugin root"). The main checkout does not yet have lane 73's accept-prep change (24291a15). The header picks up the bound once accept-prep runs from a root that contains this lane. That is consistent with the builder's "next time accept-prep runs on it".
+- Run: `node --test scripts/work-record.test.mjs skills/team-build/references/accept-prep.test.mjs` gives exit 0, 297 pass, 0 fail.
 
-Mutation method: on the scratch copy I put back each changed file's 658efde1 version, ran its test file, then restored the HEAD version. After restoring, a control run passed 58 of 58.
+## Regression hunt
+- No new code paths. The test file now imports test-home.mjs, which is already used by other scripts/*.test.mjs, so it adds no new dependency.
+- `git diff --stat 7233aa7f..HEAD -- agents/ docs/decisions/` is empty.
+- The docs/work changes in this range are the lead's (6fc9cd94), not the builder's.
 
-- **M1, fixed.** The VERDICT group now covers "reviewer, integrator, seam, builder or suite/census runner ... anything that can be listed as `Evidence:`". The progress group is "a status report on a long-running thing ... never an `Evidence:` file". The wording matches in all four places: docs/subagent-contract.md:19-23, skills/team-build/SKILL.md:149-150, skills/delegate/SKILL.md:67-68 and docs/mandate-template.md:66-67. `grep -c "First-line rule:"` is still 1 in each skill. The anchor regexes are updated (report-check.test.mjs:122 and :138). One stale twin remains in the script itself: see n1.
-- **m1, fixed.** report-check.mjs:114-119 names the missing label. Test "line 2 names which field is missing..." is at report-check.test.mjs:52. Mutation: with report-check.mjs reverted, 1 test fails.
-- **m2, fixed.** A pipe inside Now or To finish is refused, in report-check.mjs:42 and in decisions-render-core.mjs:485. Tests are at report-check.test.mjs:59-60 and decisions-render-progress.test.mjs:70-73. Mutation: with decisions-render-core.mjs reverted, 2 tests fail (this covers m4 too).
-- **m3, fixed.** work-record.mjs:35 refuses `NEEDS ben`, and it is now in the bad list (work-record-states73.test.mjs:50). Mutation: with work-record.mjs reverted, 1 test fails.
-- **m4, fixed.** checkWaitingProgressLine checks every `<summary>` (decisions-render-core.mjs:494-510). A two-item test is at decisions-render-progress.test.mjs:57. An over-refusal edge remains: see n2.
-- **m6 (hook part), fixed, and the edit is within the territory rule.** hooks/backlog-notice.js:217/226/314 accepts `parser.isKnownStatus` when the parser exports it. With an older parser that has no export, `isKnown` is undefined and the old behaviour stands. The territory brief allows a consumer edit only when a test proves the break. That proof holds: with backlog-notice.js reverted, the new test at backlog-notice.test.mjs:183 fails (1 fail), so the stderr "malformed" note was a real, test-proven break. The round-2 section of the builder report states which file was edited and why. The computeState mapping is left to the lead, which is correct.
-- **m8, fixed.** skills/delegate/SKILL.md:70 now qualifies the path ("in the claude-delegation checkout").
-- **m5, m7, m9:** not changed. These are lead decisions, carried below as open questions. Correct.
+## Findings
 
-## Regression hunt, verified absences
-- Records: I ran parseRecord and validateRecord (now = 2026-10-01T23:00Z) over all 140 docs/work/*.record.md, once with HEAD's work-record.mjs and once with base 7233aa7f's. Findings: 58 and 58. Parse errors: 0 and 0. Per-file differences: none. `git diff --stat 7233aa7f..HEAD -- docs/work docs/decisions docs/specs agents skills/team-build/references` prints nothing.
-- Renderer: HEAD's renderer on the scratch repo (base docs plus one Now line under each of the six `<summary>` lines) renders 154 lines, byte-identical to the round-1 render (`diff` prints nothing). Round 1's page-lint result therefore still holds: 12 `em-dash-arrow` hits, all pre-existing. The tightened pipe rule refuses nothing on the live page.
-- Live waiting files: each has exactly 1 `<summary>`. A scan of the last 200 commits touching docs/decisions/waiting found no waiting file with more than one, so the new every-summary loop changes nothing on existing sources.
-- Scope: the changed files from base to HEAD are the round-1 territory list plus hooks/backlog-notice.js and its test. That edit is the proven-broken consumer case, disclosed in the builder report. No change under docs/work, docs/decisions, docs/specs, agents or build-loop-workflow.js.
+M1 (MINOR): the builder report gives this lane's Spec-from with the wrong value.
+- Evidence: reports/states73-fix-r2-suite.md:9 says "This lane's Spec-from per the round 2 note is 02:50Z". The record reads `Spec-from: 2026-10-02T00:50:00Z` (record.md:14). The prior reviewer already flagged the same error in states73-fix-r2.md:15 (states73-review-r2-f1.md:75).
+- Impact: none on the conclusion. 00:50Z is also before MAXROUNDS_FROM.
+- Fix: in a future report, state 00:50Z. No code change.
 
-## MINOR
+## Open question (not a finding; the spec leaves it open)
+- The loop's accept-prep command (build-loop-workflow.js:454) does not pass --workflow. A record with no Workflow line at all therefore gets no `<run id> maxRounds=<n>` from the loop, and the lead must write the run id. The builder notes this. A Workflow script may not know its own run id, so the lead should decide whether to close this gap.
 
-### n1. report-check.mjs still states the round-1 grouping (an M1 twin I did not list in round 1).
-Evidence:
-- scripts/report-check.mjs:1-2 says it "checks a PROGRESS report (runner, lead, or any long-running thing)".
-- scripts/report-check.mjs:59 refuses a `VERDICT:` line with "VERDICT is for reviewer, integrator and seam reports, not progress reports. Use DONE, NEEDS BEN, NEEDS <peer slug> or FAILED". scripts/report-check.test.mjs:78 asserts that text.
-- Consequence: a lead who runs the check on a suite runner's or builder's report is told to rewrite it to `DONE`. That is the exact M1 consequence, but it only fires when the check is pointed at the wrong kind of report. The canonical rule text in the contract and the skills is now correct.
+## C4 fields
+Cause: the two spawnSync sites in scripts/report-check.test.mjs (old :15 runCli and old :95 no-argument call) passed no env key, so their children inherited the runner's whole environment. The N2 guard rejects that.
+Discriminating check: on the suite at 6fc9cd94, N2 named exactly old lines 15 and 95. At 19401d25, `node --test --test-name-pattern=N2 skills/multi/scripts/hooks.test.mjs` gives 16 pass, 0 fail, and report-check.test.mjs gives 16 pass, 0 fail.
+Fix location: scripts/report-check.test.mjs:9 (import), :17 (SEALED = makeTempHome()), :18 and :98 (env: SEALED.env).
+Simplification: one module-level sealed home shared by both spawn sites, with cleanup left to test-home's registered exit handler. No per-test homes and no guard exemption.
 
-Patch, scripts/report-check.mjs:1-2. Current:
-```
-// Lane 73 (report-states-73, spec item 1): checks a PROGRESS report (runner, lead, or any
-// long-running thing) carries the pinned first-line state and, for anything not DONE, the
-```
-Replacement:
-```
-// Lane 73 (report-states-73, spec item 1): checks a PROGRESS report (a status report on a
-// long-running thing, never an `Evidence:` file) carries the pinned first-line state and, for anything not DONE, the
-```
-
-Patch, scripts/report-check.mjs:59. Current:
-```
-    return { state: null, fatal: true, errors: [`first line is a VERDICT: line${partial}; VERDICT is for reviewer, integrator and seam reports, not progress reports. Use DONE, NEEDS BEN, NEEDS <peer slug> or FAILED`] };
-```
-Replacement:
-```
-    return { state: null, fatal: true, errors: [`first line is a VERDICT: line${partial}; VERDICT is for reviewer, integrator, seam, builder and suite/census runner reports (anything listed as Evidence:), which this check does not cover. A progress report opens DONE, NEEDS BEN, NEEDS <peer slug> or FAILED`] };
-```
-
-Patch, scripts/report-check.test.mjs:78. Current:
-```
-  assert.match(r.stdout, /VERDICT is for reviewer, integrator and seam reports/);
-```
-Replacement:
-```
-  assert.match(r.stdout, /VERDICT is for reviewer, integrator, seam, builder and suite\/census runner reports/);
-```
-Predicted outcome: the gate stays at 1136 of 1136. A VERDICT report is still refused (exit 1), but the message no longer tells a runner to switch to DONE.
-
-### n2. A `<summary>` inside a fenced block in a waiting item is now treated as a title.
-Evidence: the probe (`lane-73/fence-probe.mjs`) inserts a tab-indented fenced block containing `<summary>quoted html</summary>` into progress-73/waiting-with-line.md.
-- checkWaitingItem passes it, because decisions-read.mjs skips fences (decisions-read.mjs:129-135, :338).
-- checkWaitingProgressLine refuses it: "waiting/a.md:7 lacks the line directly under the title".
-- The failure is closed and names file and line, and no live or historical waiting file has this pattern. It is still an over-refusal that round 1's first-match version did not have for a fence placed after the title.
-
-Patch, skills/decisions/scripts/decisions-render-core.mjs:496-497. Current:
-```
-  lines.forEach((line, summaryIdx) => {
-    if (!/<summary>/.test(line)) return;
-```
-Replacement:
-```
-  let inFence = false;
-  lines.forEach((line, summaryIdx) => {
-    if (/^\s*```/.test(line)) { inFence = !inFence; return; }
-    if (inFence || !/<summary>/.test(line)) return;
-```
-Predicted outcome: the fence probe passes both checks. The existing 9 progress tests and the two-item test pass unchanged, since no fixture has a fence. Optionally add the probe as a test.
-
-### n3. The builder report contradicts its own round-2 section.
-Evidence, in states73-builder.md:
-- "Readings taken" item 1 (line 18) still reads "Progress reports only (runner, lead, long-running). Reviewer, integrator and seam reports keep `VERDICT:`".
-- "Consumers (not edited)" (lines 27-28) says no consumer was edited.
-- Line 5 gives HEAD as 658efde1.
-- The round-2 section (lines 36-49) supersedes all three, but a reader of the top half gets the old facts.
-
-Fix (report text only, no code):
-- Amend reading 1 to the M1 grouping.
-- Retitle the consumers section, or point it at the round-2 m6 entry. It should say backlog-notice.js was edited because backlog-notice.test.mjs:183 proves the break.
-- Update the HEAD sha on line 5.
-
-Predicted outcome: no gate effect.
-
-## Open questions for the lead (carried, not decided here)
-1. Session bullets that are in progress but do not start with "In progress", for example "Running: ..." (r1 m5).
-2. Withdrawing a record whose Status is open, NEEDS or FAILED (r1 m7). Mapping NEEDS and FAILED in collect-from-origin computeState and in the stall nudge (r1 m6, remainder).
-3. Merge-day items (r1 m9):
-   - The six live waiting files need a Now line before the next publish.
-   - PROGRESS_LINE_FROM 2026-10-02T04:00Z against the merge time.
-   - The Log-line grammar for spaced status words.
+## Not done
+- Full suite: not run on Windows, by project rule.
+- Mutation check of F1: not done (scanner not exported; see above).

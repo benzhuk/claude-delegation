@@ -1,88 +1,50 @@
-VERDICT: APPROVE 8da75eab31507962a13f3a17cae9e823b6633086
+VERDICT: APPROVE 19401d255026b426049af587ad7ac4bb4017a859
 
-# states73 review, round 2 (scope add F1: maxRounds on the Workflow line), lane 73, wr-2026-10-01-report-states
+# states73 review, round 2: delta re-review of the suite findings fix
 
-Worktree: C:/Users/benzh/Code/zhuk-infra/claude-delegation/.claude/worktrees/lane-73. I ran `git rev-parse HEAD` there myself and got 8da75eab31507962a13f3a17cae9e823b6633086. Range 0c7b14fe..HEAD is six commits. The builder's code is one commit, 24291a15 (8 files). 8da75eab adds the builder report. The other four (9ddd8308, 98ca5aac, 3349cd83, 57cbfdf0) are the lead's record, scope, merge and report commits.
+HEAD (git rev-parse HEAD in lane-73): 19401d255026b426049af587ad7ac4bb4017a859
+Range: 8da75eab31507962a13f3a17cae9e823b6633086..HEAD. Two commits:
+- 6fc9cd94 (lead, docs only: reports, docs/work evidence/record/loop-state).
+- 19401d25 (builder): scripts/report-check.test.mjs (+5/-2) and the builder report. That is the only code change in the range.
 
-Report path: the brief's path for round 2, `reports/states73-review-r2.md`, already exists. It is committed (57cbfdf0) and holds the earlier APPROVE review of 0c7b14fe. I did not overwrite it, because the rules forbid overwriting work I did not write. This report is at `reports/states73-review-r2-f1.md` instead. It is the only file I wrote in the worktree.
+Blockers: 0. Majors: 0. Minors: 1.
 
-Worktree state: `git status --short` showed ` M docs/work/wr-2026-10-01-report-states.loop-state.json` before and after the review. The lead or the loop changed that file, not me. I edited no code. The mutation checks ran on a `git archive HEAD` copy in scratch (`lane-73/r2f1/copy`).
+## Prior finding F1 (blocker, N2 env-inheritance guard): FIXED, verified
+- scripts/report-check.test.mjs:9 imports makeTempHome from ./test-home.mjs. Line 17 builds one sealed home (`const SEALED = makeTempHome()`). Line 18 (runCli) and line 98 (the no-argument spawnSync) both pass `env: SEALED.env`. Those are the two sites the suite named (old lines 15 and 95).
+- The guard test was not touched. `git diff 8da75eab..HEAD -- skills/` is empty, and the only script change is the one test file.
+- Run: `node --test scripts/report-check.test.mjs` gives exit 0, 16 pass, 0 fail.
+- Run: `node --test --test-name-pattern=N2 skills/multi/scripts/hooks.test.mjs` gives exit 0, 16 pass, 0 fail. This includes "N2: no test file in this suite inherits the runner environment on its own", the test that failed on Netcup and Hetzner at 6fc9cd94.
+- Cleanup: the sealed home is never cleaned up explicitly. makeTempHome registers each directory and removes it with an exit/signal handler (scripts/test-home.mjs:114-116). scripts/prefix-test.test.mjs:35 uses the same pattern, so nothing leaks.
+- I did not run a mutation check. The scanner (findEnvLessSpawns, skills/multi/scripts/hooks.test.mjs:605) is not exported, so I could not run it on the base file without writing to the tree. The discriminating evidence is the suite failure at 6fc9cd94: it named exactly these two lines, and this commit changes only them.
 
-This is a delta review. Scope: the F1 scope add in rounds-findings.md, plus a hunt for regressions against round 1's APPROVE.
+## Prior finding F2 (record Workflow line has no maxRounds): answered, claims verified
+- accept-prep rewrites any Workflow value that names a run to `<run id> maxRounds=<n>`, replacing a stale bound. It inserts the line when --workflow is given and leaves `none, ...` alone. Code: skills/team-build/references/accept-prep.mjs:250-268, with DEFAULT_MAX_ROUNDS = 3 at :40.
+- The build loop passes the bound it actually used. build-loop-workflow.js:476-477 computes `maxRounds` (args.maxRounds, default 3), :1199 passes it to acceptPrepPrompt, and :454 emits `--max-rounds ${maxRoundsUsed}`.
+- The check applies only on or after the cutoff. scripts/work-record.mjs:226 sets MAXROUNDS_FROM = 2026-10-02T03:00:00Z, and :247-258 refuses only when Spec-from is on or after that. This record's Spec-from is 2026-10-02T00:50:00Z (docs/work/wr-2026-10-01-report-states.record.md:14), so the check does not apply, as the builder says.
+- Why the 03:21:40Z accept-prep run still left `Workflow: wf_1a816e86-f8d` without a bound: that run used the plugin root, the main checkout (reports/accept-prep.md: "cwd = plugin root"). The main checkout does not yet have lane 73's accept-prep change (24291a15). The header picks up the bound once accept-prep runs from a root that contains this lane. That is consistent with the builder's "next time accept-prep runs on it".
+- Run: `node --test scripts/work-record.test.mjs skills/team-build/references/accept-prep.test.mjs` gives exit 0, 297 pass, 0 fail.
 
-Counts: 0 BLOCKER, 0 MAJOR, 5 MINOR.
-
-## Gate and focused tests (run by me)
-
-- Territory gate, redirected to `scratchpad/lane-73/review-gate.log`: exit 0, tests 1140, pass 1140, fail 0.
-- `node --test skills/team-build/references/accept-prep.test.mjs skills/team-build/references/build-loop-workflow.test.mjs` (log `review-r2-focused.log`): exit 0, tests 154, pass 154, fail 0. This includes "lane 73 F1: accept-prep's command carries --max-rounds with the value the loop used" and "maxRounds omitted passes the default 3 to accept-prep".
-- Mutation checks, run on the scratch copy:
-  - I replaced the guard at work-record.mjs:247 with `if (false)`. 2 of the 4 "lane 73 F1" work-record tests then failed: the refusal test and the cutoff test.
-  - I replaced the guard at accept-prep.mjs:256 with `if (false)`. 4 of the 5 F1 accept-prep tests then failed.
-  - Both regression tests are real.
-
-## F1 requirements, checked one by one
-
-1. **accept-prep writes `Workflow: <run id> maxRounds=<n>` with the value used, default 3.** Met.
-   - accept-prep.mjs:250-269. The loop passes `--max-rounds ${maxRounds}` (build-loop-workflow.js:454, 1199), where `maxRounds` comes from build-loop-workflow.js:476-477 and defaults to 3.
-   - My probes: a plain run id gives `wf_a maxRounds=3`; CRLF line endings are kept (`crlfAll=true`); a bold-prefixed `- **Workflow:** wf_a` gives `wf_a maxRounds=2` and parseRecord reads it back; `none, <reason>` and an empty `Workflow:` are left alone.
-2. **work-record accepts the form and refuses a run-id line without `maxRounds=<n>` from the cutoff on.** Met.
-   - work-record.mjs:247-260. checkWorkflowField is called only from checkAcceptance (work-record.mjs:1352), which runs for `accept`, `check-acceptance` and acceptRecord (:1685, :2824). merge-check and validateRecord do not call it.
-   - Regression sweep: I parsed all 140 `docs/work/*.record.md` at HEAD and ran checkWorkflowField on each. 0 hit `workflow-maxrounds-missing`. No existing record is newly refused.
-3. **Documented once in skills/team-build/SKILL.md.** Met. "never a peer message" appears once (SKILL.md:391). The refusal code is also listed at SKILL.md:86-87 and in docs/work-record.md (the field section and the codes table).
-4. **Tests for with/without maxRounds, accept-prep writes the value, default 3.** Met. There are 4 new work-record tests, 5 new accept-prep tests and 2 new build-loop tests.
-5. **No consumer breaks on the longer Workflow value.** Verified:
-   - I grepped every reader of the record's `Workflow:` field in scripts, hooks, skills and bin. The only readers are work-census.mjs:118 and :163, which print the value verbatim.
-   - four-read.mjs and build-census.mjs get run ids from transcripts (`toolUseResult.runId`), never from the record. So a run id followed by ` maxRounds=3` breaks no lookup.
-6. **Scope.** The builder commit touches only the 8 files the scope add names or implies. accept-prep.mjs and build-loop-workflow.js (and their tests) are not in the original territory list, but the lead's scope add rules them in by name. No change under agents/ or docs/decisions/. The only docs/work changes are lead commits (9ddd8308, 98ca5aac, 57cbfdf0).
+## Regression hunt
+- No new code paths. The test file now imports test-home.mjs, which is already used by other scripts/*.test.mjs, so it adds no new dependency.
+- `git diff --stat 7233aa7f..HEAD -- agents/ docs/decisions/` is empty.
+- The docs/work changes in this range are the lead's (6fc9cd94), not the builder's.
 
 ## Findings
 
-### MINOR 1: accept-prep without `--max-rounds` replaces an existing recorded bound with the default 3
-- **Evidence:** accept-prep.mjs:259 is `const rounds = opts.maxRounds !== undefined ? Number(opts.maxRounds) : DEFAULT_MAX_ROUNDS;`.
-- **Probe:** start from `Workflow: wf_a maxRounds=5` and pass no `--max-rounds`. The result is `Workflow: wf_a maxRounds=3`, so the record now states a bound that was never used.
-- **Impact:** the loop always passes the flag, so only a hand run hits this.
-- **Patch** (accept-prep.mjs:259):
-  - current: `    const rounds = opts.maxRounds !== undefined ? Number(opts.maxRounds) : DEFAULT_MAX_ROUNDS;`
-  - replacement: `    const recorded = /(?:^|\s)maxRounds=(\d+)(?:\s|$)/i.exec(existingWorkflow);`
-    `    const rounds = opts.maxRounds !== undefined ? Number(opts.maxRounds) : recorded ? Number(recorded[1]) : DEFAULT_MAX_ROUNDS;`
-- **Predicted outcome:** the existing F1 tests still pass. The "second accept-prep replaces" test passes `maxRounds: 4` explicitly, and the "default 3" test starts with no bound.
+M1 (MINOR): the builder report gives this lane's Spec-from with the wrong value.
+- Evidence: reports/states73-fix-r2-suite.md:9 says "This lane's Spec-from per the round 2 note is 02:50Z". The record reads `Spec-from: 2026-10-02T00:50:00Z` (record.md:14). The prior reviewer already flagged the same error in states73-fix-r2.md:15 (states73-review-r2-f1.md:75).
+- Impact: none on the conclusion. 00:50Z is also before MAXROUNDS_FROM.
+- Fix: in a future report, state 00:50Z. No code change.
 
-### MINOR 2: the run-id strip only removes a bound at the very end, so a second token can appear
-- **Evidence:** accept-prep.mjs:257-258, `.replace(/\s+maxRounds=\S*\s*$/i, "")`.
-- **Probe:** `Workflow: wf_a maxRounds=3 (rerun)` with `--max-rounds 4` gives `Workflow: wf_a maxRounds=3 (rerun) maxRounds=4`. checkWorkflowField accepts that, since any one token passes.
-- **Patch:**
-  - current: `      .replace(/\s+maxRounds=\S*\s*$/i, "").trim();`
-  - replacement: `      .replace(/(^|\s+)maxRounds=\S*/gi, "").trim();`
-- **Predicted outcome:** that probe gives `wf_a (rerun) maxRounds=4`, and all current tests are unchanged.
-
-### MINOR 3: the check accepts a Workflow value that is only a bound, with no run id
-- **Evidence:** work-record.mjs:247.
-- **Probe:** `checkWorkflowField({fields:{workflow:"maxRounds=3",specFrom:"2026-10-03T00:00:00Z"}})` returns no refusal. Through accept-prep the same input becomes `Workflow: maxRounds=3 maxRounds=2`.
-- **Spec wording:** the record line is `<run id> maxRounds=<n>`.
-- **Fix:** in the `if (workflow !== "")` branch, before the maxRounds test, refuse `workflow-invalid` when the first whitespace-separated token matches `/^maxRounds=/i`. In accept-prep, throw `missing-field` when `runId` comes out empty.
-- **Predicted outcome:** no existing test or record is affected (the sweep above found 0 such values).
-
-### MINOR 4: the loop accepts a maxRounds that accept-prep refuses, but only fails at the very end of the run
-- **Evidence:**
-  - build-loop-workflow.js:476-477 takes any finite number, including `2.5` and `-1`.
-  - accept-prep.mjs:80-82 refuses anything that does not match `/^\d+$/`. Probes: `-1` and `2.5` give `bad-args`; `07` passes.
-  - So a run launched with `maxRounds: 2.5` does all its build, review and integrate work, then dies at accept-prep.
-- **Fix:** validate at launch. Make line 477 `Number.isInteger(maxRoundsCandidate) && maxRoundsCandidate >= 0 ? maxRoundsCandidate : 3`, or refuse the args up front the way the other arg checks do.
-- **Predicted outcome:** the existing explicit and default tests are unchanged.
-
-### MINOR 5: the builder report misstates the lane record's Spec-from
-- **Evidence:** states73-fix-r2.md says "lane 73's own record (Spec-from 02:50Z ...)". docs/work/wr-2026-10-01-report-states.record.md:14 reads `Spec-from: 2026-10-02T00:50:00Z`.
-- **Impact:** none on the conclusion; the lane is still before MAXROUNDS_FROM and is not stranded.
-- **Fix:** correct the sentence in the report.
-
-## Open question (not a finding; the lead decides)
-
-The scope add says the check refuses "once this lands". The builder implemented it as a fixed Spec-from cutoff, MAXROUNDS_FROM = 2026-10-02T03:00:00Z (work-record.mjs:226), which is the same discipline as WORKFLOW_FROM and SCRATCH_FROM. As a result, a record opened before 03:00Z and accepted by hand after the merge is not refused. Loop-run accepts are unaffected, because accept-prep always writes the bound. I judge this the narrowest reading that satisfies "records already accepted are not rewritten or refused". If the lead wants every accept after landing to be checked, the cutoff would need to be judged on the accept time instead.
+## Open question (not a finding; the spec leaves it open)
+- The loop's accept-prep command (build-loop-workflow.js:454) does not pass --workflow. A record with no Workflow line at all therefore gets no `<run id> maxRounds=<n>` from the loop, and the lead must write the run id. The builder notes this. A Workflow script may not know its own run id, so the lead should decide whether to close this gap.
 
 ## C4 fields
+Cause: the two spawnSync sites in scripts/report-check.test.mjs (old :15 runCli and old :95 no-argument call) passed no env key, so their children inherited the runner's whole environment. The N2 guard rejects that.
+Discriminating check: on the suite at 6fc9cd94, N2 named exactly old lines 15 and 95. At 19401d25, `node --test --test-name-pattern=N2 skills/multi/scripts/hooks.test.mjs` gives 16 pass, 0 fail, and report-check.test.mjs gives 16 pass, 0 fail.
+Fix location: scripts/report-check.test.mjs:9 (import), :17 (SEALED = makeTempHome()), :18 and :98 (env: SEALED.env).
+Simplification: one module-level sealed home shared by both spawn sites, with cleanup left to test-home's registered exit handler. No per-test homes and no guard exemption.
 
-- Cause: the build loop's round bound (`maxRounds`, build-loop-workflow.js:476-477) was not visible on the record, so a lead could not check it and could take a bound from a peer message instead.
-- Discriminating check: the "lane 73 F1" tests in scripts/work-record.test.mjs and accept-prep.test.mjs. They fail on the scratch copy with the fix removed (2 of 4 and 4 of 5 failed) and pass at HEAD (1140/1140 gate, 154/154 focused).
-- Fix location: skills/team-build/references/accept-prep.mjs:250-269 (writes the bound), build-loop-workflow.js:454 and :1199 (passes it), scripts/work-record.mjs:226 and :247-260 (checks it).
-- Simplification: none needed. The check reuses checkWorkflowField's existing Spec-from cutoff pattern, and the writer reuses editRecord's matchField/insertLine path rather than adding a new writer.
+## Not done
+- Full suite: not run on Windows, by project rule.
+- Mutation check of F1: not done (scanner not exported; see above).
