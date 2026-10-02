@@ -21,7 +21,7 @@ taxonomy → nucleus, 9.13.26 10:05 NYC [taxonomy-pr132-review-1] ASK: Please re
 note-send --from taxonomy --to nucleus --kind ASK \
   --topic pr132-review --text "Please review PR #132, focus on the batch scheduler retry path" \
   --goal "land it before tonight's corpus run" \
-  --details docs/notes/taxonomy-pr132-review-1.md --needs review --by 15:00 \
+  --needs review --by 15:00 \
   --packet-file ./packet.md
 ```
 
@@ -90,7 +90,7 @@ and a Windows path could not be expressed in one anyway.
 From Git Bash on the desktop, as one line:
 
 ```
-ssh ben@100.69.249.18 '~/.local/bin/note-send --from accounts --to taxonomy --kind ASK --topic ledger-schema --text "Does the ledger already have a table I should append these rows to?" --goal "avoid a second store" --details docs/notes/accounts-ledger-schema-1.md --needs decision --by 17:00 --packet-file -' < packet.md
+ssh ben@100.69.249.18 '~/.local/bin/note-send --from accounts --to taxonomy --kind ASK --topic ledger-schema --text "Does the ledger already have a table I should append these rows to?" --goal "avoid a second store" --needs decision --by 17:00 --packet-file -' < packet.md
 ```
 
 ```

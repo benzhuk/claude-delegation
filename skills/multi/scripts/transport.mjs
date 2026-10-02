@@ -824,9 +824,79 @@ export function composerResidue(read, known, lines = LIVE_TAIL_LINES) {
 
 export function notesDir(home) { return toPosix(path.posix.join(toPosix(home), '.agents/notes')); }
 export function ledgerPath(repo, ymd) { return toPosix(path.posix.join(toPosix(repo), 'docs/ledger', `${ymd}.md`)); }
+/**
+ * Lane 74 item 5 (ledger ruling): the ledger stays at `<repo>/docs/ledger/`, because the cross-host mirror,
+ * the id counter and every ledger reader (note-inbox, collect-status, four-read, build-census, decisions
+ * pickup) read it there, but it is never allowed to show up in `git status`: the first write into a
+ * checkout adds `/docs/ledger/` to that checkout's own `.git/info/exclude` (local to the clone, never
+ * tracked, never pushed). Idempotent; only a main checkout (`.git` is a directory) is touched, a linked
+ * worktree's `.git` file is left alone; any failure is swallowed, a send must never fail on this.
+ */
+export const LEDGER_EXCLUDE_LINE = '/docs/ledger/';
+export function ensureLedgerIgnored(repo, fsImpl = fs) {
+  try {
+    const gitDir = path.join(String(repo), '.git');
+    if (!fsImpl.statSync(gitDir).isDirectory()) return { changed: false, reason: 'not-a-main-checkout' };
+    const file = path.join(gitDir, 'info', 'exclude');
+    let text = '';
+    try { text = fsImpl.readFileSync(file, 'utf8'); } catch { /* no exclude file yet */ }
+    if (text.split(/\r?\n/).some((l) => l.trim() === LEDGER_EXCLUDE_LINE || l.trim() === 'docs/ledger/')) return { changed: false, reason: 'already' };
+    fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+    const lead = text === '' || text.endsWith('\n') ? '' : '\n';
+    fsImpl.appendFileSync(file, lead + LEDGER_EXCLUDE_LINE + '\n', 'utf8');
+    return { changed: true, reason: 'added' };
+  } catch {
+    return { changed: false, reason: 'unavailable' };
+  }
+}
 export function ledgerDir(repo) { return toPosix(path.posix.join(toPosix(repo), 'docs/ledger')); }
 export function notesMirrorPath(home, ymd) { return toPosix(path.posix.join(notesDir(home), `${ymd}.md`)); }
-export function packetPathFor(repo, id) { return toPosix(path.posix.join(toPosix(repo), 'docs/notes', `${id}.md`)); }
+/**
+ * Lane 74 item 5: a plugin-written packet never lands untracked in a checkout. It lives under the
+ * recipient host's `~/.agents/notes/packets/<repo-name>/<id>.md`, and the envelope's Details names it
+ * as `.agents/notes/packets/<repo-name>/<id>.md`: repo-relative in shape (validateDetails and its
+ * charset accept it), resolved against the reader's HOME instead of a repo. `docs/notes/...` Details
+ * written before this keep resolving against the repo, exactly as before.
+ */
+export const PACKET_DETAILS_PREFIX = '.agents/notes/packets/';
+/**
+ * The agents home on THIS host: AGENTS_HOME when the environment sets it (decisions-pickup writes its
+ * pointers there), else `<home>/.agents`. The `.agents/...` Details form resolves against it, and
+ * note-send writes its packets under it, so a writer and a reader on one host always agree.
+ */
+export function agentsHomeOf(home, env) {
+  const override = env && typeof env.AGENTS_HOME === 'string' ? env.AGENTS_HOME.trim() : '';
+  return override ? toPosix(path.resolve(override)) : toPosix(path.posix.join(toPosix(home), '.agents'));
+}
+/** The repo's name for packet and pointer paths: the last segment of its path, reduced to the Details charset. */
+export function repoName(repo) {
+  const seg = toPosix(String(repo ?? '')).split('/').filter(Boolean).pop() ?? '';
+  const name = seg.replace(/[^A-Za-z0-9._-]/g, '-').replace(/^[.]+/, '');
+  return name || 'repo';
+}
+/** The Details string for a packet `id` of `repo` (always valid for validateDetails). */
+export function packetDetailsFor(repo, id) { return `${PACKET_DETAILS_PREFIX}${repoName(repo)}/${id}.md`; }
+/**
+ * Where a Details string resolves on THIS host: `.agents/notes/packets/...` against `home`, anything
+ * else against `repo` (the legacy `docs/notes/...` form). Returns null for a Details that cannot be
+ * placed (no repo for a repo-relative one).
+ */
+export function resolveDetailsPath(details, { home, repo, env } = {}) {
+  const d = String(details ?? '');
+  // A `..` segment would climb out of the packets folder (the home-anchored form lands at HOME, which
+  // holds secrets); a Details that cannot be placed safely is not placed at all.
+  if (!d || d.split('/').includes('..')) return null;
+  if (d.startsWith(PACKET_DETAILS_PREFIX)) return home ? toPosix(path.posix.join(agentsHomeOf(home, env), d.slice('.agents/'.length))) : null;
+  return repo ? toPosix(path.posix.join(toPosix(repo), d)) : null;
+}
+/**
+ * The packet file for `id`. With `home` it is the out-of-checkout location above; without it, the
+ * legacy `<repo>/docs/notes/<id>.md` (kept only so an old caller or fixture still resolves).
+ */
+export function packetPathFor(repo, id, home, env) {
+  if (home) return toPosix(path.posix.join(agentsHomeOf(home, env), packetDetailsFor(repo, id).slice('.agents/'.length)));
+  return toPosix(path.posix.join(toPosix(repo), 'docs/notes', `${id}.md`));
+}
 export function outboxDir(home) { return toPosix(path.posix.join(notesDir(home), 'outbox')); }
 export function outboxPath(home, id) { return toPosix(path.posix.join(outboxDir(home), `${id}.json`)); }
 /** Spec V2 names this file exactly: `~/.agents/notes/.cursor-<slug>`. It holds JSON. */

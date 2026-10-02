@@ -132,6 +132,7 @@ safety - EXCEPT that an unreadable project config, or no git at all, is BLIND (e
 one line on stderr), never silently reported as "nothing found."
 Once `--apply` has taken even one destructive action, nothing is silent again: a later
 failure prints everything already done before it, and the run exits 1 or 3, never 0.
+A `--apply` run whose sweep (`--sweep`, or any `<home>/.agents/janitor-policy.json`) has a row that tried to act and failed, or a sweep that stopped, also exits 1; never 2.
 
 ## Definition of done, for any builder
 
