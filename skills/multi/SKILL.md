@@ -299,8 +299,8 @@ note-send --from <your-slug> --to <peer-slug|term_handle|ben> --kind ASK \
 ```
 
 `--packet-file <path|->` writes the detail packet to the recipient's
-`docs/notes/<id>.md` before the ledger line and uses it as `Details` when no explicit
-`--details` was supplied; `-` reads the body from stdin. An existing
+`~/.agents/notes/packets/<repo-name>/<id>.md` (outside every checkout) before the ledger line and uses
+`.agents/notes/packets/<repo-name>/<id>.md` as `Details` when no explicit `--details` was supplied; `-` reads the body from stdin. An existing
 packet is never overwritten without `--force`, because the recipient may have annotated it.
 Add `--dry-run` to see the exact line and every planned write without touching anything, or
 `--no-type` to record and queue without resolving a pane at all.
@@ -482,8 +482,10 @@ and `note-flush` stops dead-lettering unknown recipients early).
   recipient both append. Written to the repo's MAIN checkout, never a disposable worktree,
   and mirrored to `~/.agents/notes/YYYY-MM-DD.md`. Repos need
   `docs/ledger/*.md merge=union` in `.gitattributes` so concurrent appends never conflict.
-- **Packet** `<repo>/docs/notes/<id>.md`, always in the RECIPIENT's repo. Template and
-  section list: `references/envelope.md`.
+- **Packet** `~/.agents/notes/packets/<repo-name>/<id>.md`, on the RECIPIENT's host, never inside a
+  checkout, so a note leaves `git status` clean. Older `<repo>/docs/notes/<id>.md` packets still resolve.
+  Template and section list: `references/envelope.md`. The send also adds `/docs/ledger/` to the main
+  checkout's local `.git/info/exclude`, for the same reason.
 - **Outbox** `~/.agents/notes/outbox/<id>.json` — wake-ups waiting to be retyped. Not notes: the
   notes are already in the ledger. `~/.agents/notes/flush.log` records every attempt, and a wake-up
   nobody could deliver ends in `outbox/dead/` with one BLOCKED line in `ben-inbox.md`. A wake-up whose

@@ -20,7 +20,7 @@ import {
   normalizeTitle, titleMatchesSlug, resolvePane, isLocalPane,
   classifyPane, composerShows, LIVE_TAIL_LINES,
   mainCheckout, toPosix,
-  ledgerPath, notesMirrorPath, packetPathFor, appendLine, writePacket,
+  ledgerPath, notesMirrorPath, packetPathFor, packetDetailsFor, repoName, resolveDetailsPath, validateDetails, ensureLedgerIgnored, appendLine, writePacket,
   parseArgs, resolveOrcaCommand, timeParts, isMainModule,
   findOnPath, orcaHint, ORCA_WINDOWS_FORK,
   runNoteSend, writeBinding, writeInbox, firstStderrLine, failureJson,
@@ -649,15 +649,17 @@ test('v3: run on the recipient host, the same note is an ordinary local send', a
 // v3 --packet-file / --force
 // ─────────────────────────────────────────────────────────────────────────────
 
-test('v3: --packet-file writes docs/notes/<id>.md before the ledger line', async () => {
+test('v3: --packet-file writes ~/.agents/notes/packets/<repo-name>/<id>.md before the ledger line, and nothing in the recipient checkout', async () => {
   const repo = tmp(); const home = tmp();
   const src = path.join(tmp(), 'packet.md');
   fs.writeFileSync(src, '# taxonomy-ping-1 — the packet body\n');
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
   const res = await runNoteSend(ARGS_OK(['--packet-file', src]), { orca, home, git: () => '.git', now: NOW, env: TYPING });
-  assert.equal(res.packetPath, packetPathFor(repo, 'taxonomy-ping-1'));
+  assert.equal(res.packetPath, packetPathFor(repo, 'taxonomy-ping-1', home));
+  assert.equal(res.packetPath, `${home.split(path.sep).join('/')}/.agents/notes/packets/${repoName(repo)}/taxonomy-ping-1.md`);
   assert.equal(res.packetWritten, true);
   assert.match(fs.readFileSync(res.packetPath, 'utf8'), /the packet body/);
+  assert.equal(fs.existsSync(path.join(repo, 'docs', 'notes')), false, 'lane 74 item 5: no packet lands in the recipient checkout');
 });
 
 test('packet-file derives Details from the resolved id and the recipient inbox resolves that packet', async () => {
@@ -667,7 +669,8 @@ test('packet-file derives Details from the resolved id and the recipient inbox r
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
   const sent = await runNoteSend(ARGS_OK(['--packet-file', src]), { orca, home, git: () => '.git', now: NOW, env: TYPING });
   const parsed = parseEnvelope(sent.envelope);
-  assert.equal(parsed.details, 'docs/notes/taxonomy-ping-1.md');
+  assert.equal(parsed.details, packetDetailsFor(repo, 'taxonomy-ping-1'));
+  assert.match(parsed.details, /^\.agents\/notes\/packets\/[A-Za-z0-9._-]+\/taxonomy-ping-1\.md$/);
   const inbox = await runNoteInbox(['--me', 'nucleus', '--repo', repo], {
     home, cwd: repo, git: () => '.git', now: NOW, env: {},
   });
@@ -678,14 +681,14 @@ test('packet-file derives Details from the resolved id and the recipient inbox r
 });
 
 test('packet-file derives the same Details in dry-run and preserves an explicit Details reference', async () => {
-  const repo = tmp(); const src = path.join(tmp(), 'packet.md');
+  const repo = tmp(); const home = tmp(); const src = path.join(tmp(), 'packet.md');
   fs.writeFileSync(src, '# packet\n');
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
-  const dry = await runNoteSend(ARGS_OK(['--packet-file', src, '--dry-run', '--recipient-repo', repo]), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING });
-  assert.equal(parseEnvelope(dry.envelope).details, 'docs/notes/taxonomy-ping-1.md');
-  const explicit = await runNoteSend(ARGS_OK(['--packet-file', src, '--details', 'docs/notes/separate.md']), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING });
-  assert.equal(parseEnvelope(explicit.envelope).details, 'docs/notes/separate.md');
-  assert.equal(explicit.packetPath, packetPathFor(repo, 'taxonomy-ping-1'));
+  const dry = await runNoteSend(ARGS_OK(['--packet-file', src, '--dry-run', '--recipient-repo', repo]), { orca, home, git: () => '.git', now: NOW, env: TYPING });
+  assert.equal(parseEnvelope(dry.envelope).details, packetDetailsFor(repo, 'taxonomy-ping-1'));
+  const explicit = await runNoteSend(ARGS_OK(['--packet-file', src, '--details', 'docs/notes/separate.md']), { orca, home, git: () => '.git', now: NOW, env: TYPING });
+  assert.equal(parseEnvelope(explicit.envelope).details, 'docs/notes/separate.md', 'an explicit legacy Details is still carried verbatim');
+  assert.equal(explicit.packetPath, packetPathFor(repo, 'taxonomy-ping-1', home));
 });
 
 test('v3: --packet-file - reads the body from stdin (the ssh form)', async () => {
@@ -698,20 +701,20 @@ test('v3: --packet-file - reads the body from stdin (the ssh form)', async () =>
 });
 
 test('v3: an existing packet is never overwritten without --force', async () => {
-  const repo = tmp();
-  const existing = packetPathFor(repo, 'taxonomy-ping-1');
+  const repo = tmp(); const home = tmp();
+  const existing = packetPathFor(repo, 'taxonomy-ping-1', home);
   fs.mkdirSync(path.dirname(existing), { recursive: true });
   fs.writeFileSync(existing, 'recipient annotations live here\n');
   const src = path.join(tmp(), 'packet.md');
   fs.writeFileSync(src, 'new body\n');
 
   const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
-  await rejectsWith(runNoteSend(ARGS_OK(['--packet-file', src]), { orca, home: tmp(), git: () => '.git', now: NOW, env: TYPING }), 1, /already exists.*--force/s);
+  await rejectsWith(runNoteSend(ARGS_OK(['--packet-file', src]), { orca, home, git: () => '.git', now: NOW, env: TYPING }), 1, /already exists.*--force/s);
   assert.match(fs.readFileSync(existing, 'utf8'), /recipient annotations/, 'the existing packet is untouched');
   assert.equal(orca.sends().length, 0, 'nothing is sent when the packet write is refused');
 
   const orca2 = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
-  const res = await runNoteSend(ARGS_OK(['--packet-file', src, '--force']), { orca: orca2, home: tmp(), git: () => '.git', now: NOW, env: TYPING });
+  const res = await runNoteSend(ARGS_OK(['--packet-file', src, '--force']), { orca: orca2, home, git: () => '.git', now: NOW, env: TYPING });
   assert.equal(res.delivered, true);
   assert.match(fs.readFileSync(existing, 'utf8'), /new body/);
 });
@@ -2159,4 +2162,79 @@ test('R3 (review MAJOR-4): the real outbox retry, via note-flush.mjs\'s own runN
   const mirrorFile = notesMirrorPath(home, day);
   const idLines = fs.readFileSync(mirrorFile, 'utf8').split('\n').filter((l) => l.includes(`[${err.id}]`));
   assert.equal(idLines.length, 1, 'exactly one line for this id — the retry never re-appends it');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// lane 74 item 5: out-of-checkout packets, the Details convention, legacy Details
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('lane 74 item 5: the derived Details is valid for validateDetails and resolves against HOME, never the repo', () => {
+  const repo = tmp();
+  const details = packetDetailsFor(repo, 'astra-here-1');
+  assert.equal(details, `.agents/notes/packets/${repoName(repo)}/astra-here-1.md`);
+  assert.equal(validateDetails(details), details);
+  const home = tmp();
+  assert.equal(resolveDetailsPath(details, { home, repo }), packetPathFor(repo, 'astra-here-1', home));
+  assert.equal(resolveDetailsPath('docs/notes/old-1.md', { home, repo }), `${repo.split(path.sep).join('/')}/docs/notes/old-1.md`, 'legacy Details resolves against the repo as before');
+  assert.equal(resolveDetailsPath(details, { repo }), null, 'a home-relative Details needs a home');
+});
+
+test('lane 74 F5: with AGENTS_HOME set, the home-relative Details and the packet writer both follow it', () => {
+  const repo = tmp();
+  const home = tmp();
+  const agents = tmp();
+  const details = packetDetailsFor(repo, 'astra-here-1');
+  const expected = `${agents.split(path.sep).join('/')}/notes/packets/${repoName(repo)}/astra-here-1.md`;
+  assert.equal(resolveDetailsPath(details, { home, repo, env: { AGENTS_HOME: agents } }), expected);
+  assert.equal(packetPathFor(repo, 'astra-here-1', home, { AGENTS_HOME: agents }), expected, 'the writer and the reader agree');
+  assert.equal(resolveDetailsPath(details, { home, repo, env: {} }), packetPathFor(repo, 'astra-here-1', home), 'without AGENTS_HOME it is <home>/.agents as before');
+});
+
+test('lane 74 F6: a Details with a .. segment resolves nowhere, so no path outside the packets folder is ever printed', () => {
+  const repo = tmp();
+  const home = tmp();
+  assert.equal(resolveDetailsPath('.agents/notes/packets/../../../hidden/x', { home, repo }), null);
+  assert.equal(resolveDetailsPath('docs/notes/../../outside/x.md', { home, repo }), null);
+});
+
+test('lane 74 item 5: repoName reduces a path to the Details charset', () => {
+  assert.equal(repoName('/home/ben/Code/claude-delegation'), 'claude-delegation');
+  assert.equal(repoName('C:/Users/benzh/Code/zhuk-infra/claude-delegation/'), 'claude-delegation');
+  assert.equal(repoName('/x/we ird:name'), 'we-ird-name');
+  assert.equal(repoName('/x/.hidden'), 'hidden');
+});
+
+test('lane 74 item 5: a send with a packet leaves the recipient checkout with no new file but the ledger line', async () => {
+  const repo = tmp(); const home = tmp();
+  const src = path.join(tmp(), 'packet.md');
+  fs.writeFileSync(src, '# body\n');
+  const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
+  await runNoteSend(ARGS_OK(['--packet-file', src]), { orca, home, git: () => '.git', now: NOW, env: TYPING });
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
+  const files = walk(repo).map((f) => path.relative(repo, f).split(path.sep).join('/'));
+  assert.deepEqual(files.filter((f) => !f.startsWith('docs/ledger/')), [], 'only the ledger is written into the checkout');
+});
+
+test('lane 74 item 5: a send into a real checkout leaves `git status --porcelain` empty (ledger ignored locally, packet outside)', async () => {
+  const repo = tmp(); const home = tmp();
+  const sealedEnv = childEnv(home, { GIT_CONFIG_GLOBAL: path.join(home, '.gitconfig'), GIT_CONFIG_NOSYSTEM: '1' });
+  fs.writeFileSync(path.join(home, '.gitconfig'), '[user]\n\tname = Fixture\n\temail = fixture@example.invalid\n');
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo, env: sealedEnv });
+  fs.writeFileSync(path.join(repo, 'README.md'), 'root\n');
+  execFileSync('git', ['add', '-A'], { cwd: repo, env: sealedEnv });
+  execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: repo, env: sealedEnv });
+  const src = path.join(tmp(), 'packet.md');
+  fs.writeFileSync(src, '# body\n');
+  const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
+  const res = await runNoteSend(ARGS_OK(['--packet-file', src]), { orca, home, git: () => '.git', now: NOW, env: TYPING });
+  assert.equal(res.delivered, true);
+  assert.ok(fs.existsSync(res.ledgers[0]), 'the ledger line was written into the checkout');
+  assert.ok(fs.existsSync(res.packetPath) && !res.packetPath.startsWith(repo.split(path.sep).join('/')), 'the packet is outside it');
+  const porcelain = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: repo, env: sealedEnv, encoding: 'utf8' });
+  assert.equal(porcelain, '', 'a durable checkout stays clean after a send');
+  // idempotent: a second send adds no second exclude line
+  const exclude = fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8');
+  assert.equal(exclude.split('\n').filter((l) => l.trim() === '/docs/ledger/').length, 1);
+  assert.equal(ensureLedgerIgnored(repo).reason, 'already');
+  assert.equal(ensureLedgerIgnored(path.join(repo, 'nope')).changed, false);
 });

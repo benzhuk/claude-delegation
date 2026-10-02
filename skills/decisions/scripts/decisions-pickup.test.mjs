@@ -61,6 +61,12 @@ No default: owner action is required
 const NOW = '2026-09-23T16:00:00.000Z';
 const REGISTERED_PAGE = '1234567890abcdef1234567890abcdef';
 
+// Lane 74 item 5: the pointer is an out-of-checkout packet, .agents/notes/packets/<repo-name>/<file> under AGENTS_HOME.
+function pointerFile(fx, receipt) {
+  assert.ok(receipt.detailsPath.startsWith('.agents/notes/packets/'), `detailsPath ${receipt.detailsPath} is the home-relative packet form`);
+  return path.join(fx.agentsHome, ...receipt.detailsPath.slice('.agents/'.length).split('/'));
+}
+
 function fixture() {
   const sealed = makeTempHome();
   const repo = fs.mkdtempSync(path.join(sealed.fixtureRoot, 'pickup-'));
@@ -353,7 +359,8 @@ test('capture crash leaves an immutable orphan that the same round reuses once',
   const result = await pickupOnce(fx.options, deps(fx, { send: async () => { sends += 1; return {}; } }));
   assert.equal(result.status, 'RECORDED');
   assert.equal(sends, 1);
-  assert.equal(fs.readdirSync(path.join(fx.repo, 'docs', 'notes')).length, 1, 'only the sanitized pointer is durable');
+  assert.equal(fs.readdirSync(path.dirname(pointerFile(fx, result.receipt))).length, 1, 'only the sanitized pointer is durable');
+  assert.equal(fs.existsSync(path.join(fx.repo, 'docs', 'notes')), false, 'nothing is written into the checkout');
   assert.equal(fs.existsSync(privateFile(fx, result.receipt)), true);
 });
 
@@ -944,7 +951,8 @@ test('Details uses the durable main checkout while capture stays in private AGEN
   });
   assert.equal(result.status, 'RECORDED');
   assert.equal(result.receipt.transportRepo, fs.realpathSync(main));
-  assert.equal(fs.existsSync(path.join(main, ...result.receipt.detailsPath.split('/'))), true);
+  assert.equal(fs.existsSync(pointerFile(sealed, result.receipt)), true, 'the pointer is under AGENTS_HOME, outside every checkout');
+  assert.equal(fs.existsSync(path.join(main, 'docs', 'notes')), false, 'lane 74 item 5: nothing lands in the durable checkout');
   assert.equal(fs.existsSync(privateFile(sealed, result.receipt)), true);
   assert.equal(fs.existsSync(path.join(main, ...result.receipt.privateCaptureRef.split('/'))), false);
   assert.equal(fs.existsSync(path.join(worktree, ...result.receipt.detailsPath.split('/'))), false);
@@ -1016,6 +1024,17 @@ test('every dispatch verifies original capture bytes and round before sending', 
   }
 });
 
+test('lane 74 item 5: a pickup through the real note-send leaves git status --porcelain of the durable checkout empty', async (t) => {
+  const fx = gitMainFixture(); t.after(fx.cleanup);
+  const git = () => path.join(fx.repo, '.git');
+  const send = (argv) => runNoteSend(argv, { git, home: fx.home, env: fx.env });
+  const result = await pickupOnce(fx.options, deps(fx, { git, send }));
+  assert.equal(result.status, 'RECORDED');
+  assert.equal(fs.existsSync(pointerFile(fx, result.receipt)), true, 'the pointer is outside the checkout');
+  const porcelain = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: fx.repo, env: fx.env, encoding: 'utf8' });
+  assert.equal(porcelain, '');
+});
+
 test('raw initial and changed page bytes stay out of the project checkout and public packet', async (t) => {
   const fx = fixture(); t.after(fx.cleanup);
   const firstCanary = 'PRIVATE-INITIAL-CANARY-88411';
@@ -1036,7 +1055,7 @@ test('raw initial and changed page bytes stay out of the project checkout and pu
   assert.equal(fs.readFileSync(privateFile(fx, result.receipt), 'utf8').includes(Buffer.from(first, 'utf8').toString('base64')), true);
   assert.equal(fs.readFileSync(privateFile(fx, reconciled.receipt, reconciled.receipt.reconciliationPrivateCaptureRef), 'utf8')
     .includes(Buffer.from(changed, 'utf8').toString('base64')), true);
-  const pointer = JSON.parse(fs.readFileSync(path.join(fx.repo, ...result.receipt.detailsPath.split('/')), 'utf8'));
+  const pointer = JSON.parse(fs.readFileSync(pointerFile(fx, result.receipt), 'utf8'));
   assert.deepEqual(Object.keys(pointer).sort(), [
     'availability', 'captureIdentity', 'digest', 'open', 'privateCaptureRef', 'projectScope', 'round', 'type', 'version',
   ]);
@@ -1095,7 +1114,7 @@ test('pointer identity is verified before any page read or dispatch', async (t) 
     onTransition(state) { if (state === 'PREPARED') throw new Error('prepared stop'); },
   })), /prepared stop/);
   const saved = status(fx.options, { agentsHome: fx.agentsHome }).receipt;
-  const pointerPath = path.join(fx.repo, ...saved.detailsPath.split('/'));
+  const pointerPath = pointerFile(fx, saved);
   const pointer = JSON.parse(fs.readFileSync(pointerPath, 'utf8'));
   fs.writeFileSync(pointerPath, JSON.stringify({ ...pointer, round: 99 }));
   let reads = 0; let sends = 0;
@@ -2018,10 +2037,10 @@ test('rebind 64b: an existing old path is refused, every file byte-identical, an
   const m = await movedRepo(t);
   fs.mkdirSync(m.receipt.project, { recursive: true });
   const before = treeBytes(m.fx.agentsHome);
-  const notes = treeBytes(path.join(m.moved, 'docs'));
+  const notes = treeBytes(path.dirname(pointerFile(m.fx, m.receipt)));
   assert.throws(() => m.run(), (error) => error instanceof PickupError && /still exists.*never taken over/.test(error.message));
   assert.deepEqual(treeBytes(m.fx.agentsHome), before);
-  assert.deepEqual(treeBytes(path.join(m.moved, 'docs')), notes);
+  assert.deepEqual(treeBytes(path.dirname(pointerFile(m.fx, m.receipt))), notes);
   // A live project is never taken over: a copy at the old path, with its own config, is refused too.
   fs.mkdirSync(path.join(m.receipt.project, '.agents'), { recursive: true });
   fs.writeFileSync(path.join(m.receipt.project, '.agents', 'project.json'), JSON.stringify({ decisions_url: m.options.page }));
@@ -2076,7 +2095,7 @@ test('rebind 64b: a tampered earlier-round capture under the saved scope is refu
 
 test('rebind 64b: a pointer missing under the new transport repository is refused with no write', async (t) => {
   const m = await movedRepo(t);
-  fs.unlinkSync(path.join(m.moved, ...m.receipt.detailsPath.split('/')));
+  fs.unlinkSync(pointerFile(m.fx, m.receipt));
   const before = treeBytes(m.fx.agentsHome);
   assert.throws(() => m.run(), /details pointer is not present under the new transport repository \(MISSING\)/);
   assert.deepEqual(treeBytes(m.fx.agentsHome), before);
@@ -2200,4 +2219,35 @@ test('rebind 64b: a differing --owner sets no handoff marker on an ACCOUNTED rec
   assert.equal(out.receipt.requestedOwner, undefined);
   assert.equal(out.receipt.owner, 'skills-a');
   assert.equal(m.stat().status, 'ACCOUNTED');
+});
+
+// ── lane 74 item 5: the pointer lives outside every checkout; a pre-lane-74 receipt still verifies ──
+
+test('lane 74 item 5: a pickup leaves the transport checkout with no file at all; the pointer is under AGENTS_HOME/notes/packets/<repo-name>/', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  const result = await pickupOnce(fx.options, deps(fx));
+  assert.equal(result.status, 'RECORDED');
+  assert.match(result.receipt.detailsPath, /^\.agents\/notes\/packets\/[A-Za-z0-9._-]+\/decisions-pickup-.+-r1\.pointer\.json$/);
+  const file = pointerFile(fx, result.receipt);
+  assert.equal(path.relative(path.join(fx.agentsHome, 'notes', 'packets'), file).split(path.sep).length, 2);
+  assert.equal(fs.existsSync(file), true);
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
+  const inRepo = walk(fx.repo).map((f) => path.relative(fx.repo, f).split(path.sep).join('/'));
+  assert.deepEqual(inRepo.filter((f) => !f.startsWith('.agents/') && !f.startsWith('docs/ledger/')), [], 'no pointer or packet in the checkout');
+});
+
+test('lane 74 item 5: a receipt written before the move (detailsPath docs/notes/...) still verifies against the transport repository', async (t) => {
+  const fx = fixture(); t.after(fx.cleanup);
+  const result = await pickupOnce(fx.options, deps(fx));
+  const receipt = result.receipt;
+  const legacyRel = `docs/notes/decisions-pickup-${receipt.projectScope}-r${receipt.round}.pointer.json`;
+  const legacyFile = path.join(receipt.transportRepo, ...legacyRel.split('/'));
+  fs.mkdirSync(path.dirname(legacyFile), { recursive: true });
+  fs.copyFileSync(pointerFile(fx, receipt), legacyFile);
+  fs.unlinkSync(pointerFile(fx, receipt));
+  const file = receiptPaths({ agentsHome: fx.agentsHome, project: receipt.project, page: fx.options.page }).receipt;
+  assert.equal(status(fx.options, { agentsHome: fx.agentsHome }).status, 'NEEDS_RECONCILIATION', 'with the pointer gone it is flagged');
+  fs.writeFileSync(file, `${JSON.stringify({ ...receipt, detailsPath: legacyRel }, null, 2)}\n`);
+  const after = status(fx.options, { agentsHome: fx.agentsHome });
+  assert.equal(after.status, 'RECORDED', 'the legacy pointer in the repository is found again');
 });

@@ -478,3 +478,36 @@ test('M1: a cursor that cannot be written ANYWHERE still surfaces the notes', as
   assert.equal(res.cursor, null);
   assert.ok(res.problems.some((p) => /WILL repeat/.test(p)), JSON.stringify(res.problems));
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// lane 74 item 5: an out-of-checkout packet (Details .agents/notes/packets/...) resolves against HOME
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('lane 74 item 5: a home-relative packet Details is found under HOME, and reads MISSING when the file is not there', async () => {
+  const home = tmp();
+  mirror(home, TODAY, [
+    line('astra', 'taxonomy', 'astra-here-1', 'ASK', 'See the packet', ' Details: .agents/notes/packets/some-repo/astra-here-1.md'),
+    line('astra', 'taxonomy', 'astra-gone-1', 'ASK', 'See the packet', ' Details: .agents/notes/packets/some-repo/astra-gone-1.md'),
+  ]);
+  const packet = path.join(home, '.agents/notes/packets/some-repo/astra-here-1.md');
+  fs.mkdirSync(path.dirname(packet), { recursive: true });
+  fs.writeFileSync(packet, '# packet\n');
+  const res = await runNoteInbox(['--me', 'taxonomy'], deps(home));
+  const here = res.notes.find((n) => n.id === 'astra-here-1');
+  assert.equal(here.packetExists, true);
+  assert.equal(here.packetPath, toPosix(packet));
+  const gone = res.notes.find((n) => n.id === 'astra-gone-1');
+  assert.equal(gone.packetExists, false);
+  assert.match(formatInbox(res), /packet MISSING: \.agents\/notes\/packets\/some-repo\/astra-gone-1\.md/);
+});
+
+test('lane 74 item 5: a home-relative packet is found even when git cannot identify the repo (it needs no repo)', async () => {
+  const home = tmp();
+  mirror(home, TODAY, [line('astra', 'taxonomy', 'astra-here-1', 'ASK', 'See the packet', ' Details: .agents/notes/packets/some-repo/astra-here-1.md')]);
+  const packet = path.join(home, '.agents/notes/packets/some-repo/astra-here-1.md');
+  fs.mkdirSync(path.dirname(packet), { recursive: true });
+  fs.writeFileSync(packet, '# packet\n');
+  const throwingGit = () => { throw new Error('git could not answer for this cwd'); };
+  const res = await runNoteInbox(['--me', 'taxonomy'], deps(home, { git: throwingGit, env: {}, cwd: home }));
+  assert.equal(res.notes.find((n) => n.id === 'astra-here-1').packetExists, true);
+});
