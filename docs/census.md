@@ -522,24 +522,6 @@ the same number it always did. When the record's `Log:` entries cannot be read, 
 not in the ledger), the row says `stall attribution unavailable (<reason>)` rather than
 saying nothing. The Codex response-gap heuristic is not attributed.
 
-**Guard denials (lane 68).** `scripts/guard-denials.mjs` reads the secret guard's denial
-log (`$XDG_STATE_HOME/secret-guard/denials.log`, else
-`<home>/.local/state/secret-guard/denials.log`, plus its one rotated `.1`; format in
-`docs/specs/secret-guard-60/spec.md` Phase 1) and counts lines whose UTC timestamp (field 1)
-falls between `Opened:` and the last accepted `Log:` entry, grouped by pattern name (field
-4), as `Guard denials: <N> on <host> (<pattern> <n>, ...)`, with `, skipped <k>` when `k`
-lines were not the guard's shape. It reads fields 1 to 4 only: the command text (field 5) is
-never sliced, kept or printed. The log carries no session id and exists per machine, so the
-count is for the host the census runs on, labelled with `os.hostname()`; a build that spans
-hosts needs one read per host. A missing log, an unreadable log, or the guard's own off
-switch (`~/.agents/ws-off-guard-log` present, so nothing was logged) reads
-`unavailable (<reason>)`, never 0. The reader has no flag, switch or environment variable of
-its own. The CLI passes the reader the home directory, the host name and the one
-`XDG_STATE_HOME` value only; `buildFourRead` prints the row only when it is given that source,
-so a call without it leaves the report byte-identical. After a log rotation the guard copies
-the newer half of `denials.log.1` into the new `denials.log`; the reader counts those copied
-lines once.
-
 Two companion lines print beside the four: top-tier assistant messages per build (each
 one re-reads the whole context, so this is the cost driver, not the turn count alone),
 with the tokens line split into cache-read, cache-write, input and output; and notes to

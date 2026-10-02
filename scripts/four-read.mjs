@@ -10,8 +10,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import os from 'node:os';
-import { guardDenialsValue } from './guard-denials.mjs';
 import { withoutRepoLocatingGitEnv } from '../skills/multi/scripts/transport.mjs';
 // ── Record parsing (independent of scripts/work-record.mjs) ────────────────
 function fieldRegex(label) {
@@ -891,9 +889,6 @@ export function buildFourRead(opts, fsImpl = fs) {
   }
   const notesToLead = computeNotesToLead(ledgerEntries, opts.leadSlug, windowMs);
   const topTierMessages = computeTopTierMessages(fsImpl, census, leadPath, leadGapReason || nativeWindowReason, windowMs.openedMs, windowMs.acceptedMs, numberOne.value, codexTimeline);
-  const guardRow = opts.guard
-    ? [{ key: 'guardDenials', label: 'Guard denials', value: guardDenialsValue({ ...opts.guard, fsImpl, openedMs: windowMs.openedMs, lastAcceptedMs: windowMs.acceptedMs === null ? null : lastAcceptedMs, reason: numberTwo.reason }) }]
-    : [];
   const leadSessionNotes = { cli: 'id came from --lead-session on the command line; the census file names the lead session file it read', record: "from the record's Lead-session: field", unavailable: 'no Lead-session: field and no --lead-session given' };
   return {
     record: opts.record, acceptAt: opts.acceptAt || null,
@@ -907,7 +902,6 @@ export function buildFourRead(opts, fsImpl = fs) {
     companions: [
       { key: 'topTierAssistantMessagesPerBuild', label: 'Top-tier assistant messages per build', value: topTierMessages.value },
       { key: 'notesToLeadPerBuild', label: 'Notes to the lead per build', value: notesToLead.value },
-      ...guardRow,
     ],
   };
 }
@@ -976,8 +970,8 @@ export function validateCensusArg(fsImpl, filePath) {
   if (!isBuildCensusJsonShape(parsed)) return { ok: false, message: CENSUS_REFUSAL_MESSAGE };
   return { ok: true };
 }
-export async function main(argv = process.argv.slice(2), { fsImpl = fs, write = (s) => console.log(s), writeErr = (s) => process.stderr.write(s), guard = null } = {}) {
-  const opts = { ...parseArgs(argv), guard };
+export async function main(argv = process.argv.slice(2), { fsImpl = fs, write = (s) => console.log(s), writeErr = (s) => process.stderr.write(s) } = {}) {
+  const opts = parseArgs(argv);
   const censusCheck = validateCensusArg(fsImpl, opts.census);
   if (!censusCheck.ok) { writeErr(`${censusCheck.message}\n`); return 2; }
   if (opts.specCensus) {
@@ -1001,5 +995,5 @@ function isMainModule() {
   return canon(real(fileURLToPath(import.meta.url))) === canon(real(entry));
 }
 if (isMainModule()) {
-  main(undefined, { guard: { home: os.homedir(), env: { XDG_STATE_HOME: process.env.XDG_STATE_HOME }, host: os.hostname() } }).then((code) => process.exit(code), (err) => { process.stderr.write(`four-read: ${String(err && err.message ? err.message : err)}\n`); process.exit(1); });
+  main().then((code) => process.exit(code), (err) => { process.stderr.write(`four-read: ${String(err && err.message ? err.message : err)}\n`); process.exit(1); });
 }
