@@ -20,7 +20,7 @@ import {
   normalizeTitle, titleMatchesSlug, resolvePane, isLocalPane,
   classifyPane, composerShows, LIVE_TAIL_LINES,
   mainCheckout, toPosix,
-  ledgerPath, notesMirrorPath, packetPathFor, packetDetailsFor, repoName, resolveDetailsPath, validateDetails, appendLine, writePacket,
+  ledgerPath, notesMirrorPath, packetPathFor, packetDetailsFor, repoName, resolveDetailsPath, validateDetails, ensureLedgerIgnored, appendLine, writePacket,
   parseArgs, resolveOrcaCommand, timeParts, isMainModule,
   findOnPath, orcaHint, ORCA_WINDOWS_FORK,
   runNoteSend, writeBinding, writeInbox, firstStderrLine, failureJson,
@@ -2195,4 +2195,28 @@ test('lane 74 item 5: a send with a packet leaves the recipient checkout with no
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]));
   const files = walk(repo).map((f) => path.relative(repo, f).split(path.sep).join('/'));
   assert.deepEqual(files.filter((f) => !f.startsWith('docs/ledger/')), [], 'only the ledger is written into the checkout');
+});
+
+test('lane 74 item 5: a send into a real checkout leaves `git status --porcelain` empty (ledger ignored locally, packet outside)', async () => {
+  const repo = tmp(); const home = tmp();
+  const sealedEnv = childEnv(home, { GIT_CONFIG_GLOBAL: path.join(home, '.gitconfig'), GIT_CONFIG_NOSYSTEM: '1' });
+  fs.writeFileSync(path.join(home, '.gitconfig'), '[user]\n\tname = Fixture\n\temail = fixture@example.invalid\n');
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: repo, env: sealedEnv });
+  fs.writeFileSync(path.join(repo, 'README.md'), 'root\n');
+  execFileSync('git', ['add', '-A'], { cwd: repo, env: sealedEnv });
+  execFileSync('git', ['commit', '-q', '-m', 'init'], { cwd: repo, env: sealedEnv });
+  const src = path.join(tmp(), 'packet.md');
+  fs.writeFileSync(src, '# body\n');
+  const orca = mockOrca({ panes: [idlePane({ worktreePath: repo })], reads: DELIVERY_READS() });
+  const res = await runNoteSend(ARGS_OK(['--packet-file', src]), { orca, home, git: () => '.git', now: NOW, env: TYPING });
+  assert.equal(res.delivered, true);
+  assert.ok(fs.existsSync(res.ledgers[0]), 'the ledger line was written into the checkout');
+  assert.ok(fs.existsSync(res.packetPath) && !res.packetPath.startsWith(repo.split(path.sep).join('/')), 'the packet is outside it');
+  const porcelain = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: repo, env: sealedEnv, encoding: 'utf8' });
+  assert.equal(porcelain, '', 'a durable checkout stays clean after a send');
+  // idempotent: a second send adds no second exclude line
+  const exclude = fs.readFileSync(path.join(repo, '.git', 'info', 'exclude'), 'utf8');
+  assert.equal(exclude.split('\n').filter((l) => l.trim() === '/docs/ledger/').length, 1);
+  assert.equal(ensureLedgerIgnored(repo).reason, 'already');
+  assert.equal(ensureLedgerIgnored(path.join(repo, 'nope')).changed, false);
 });

@@ -824,6 +824,31 @@ export function composerResidue(read, known, lines = LIVE_TAIL_LINES) {
 
 export function notesDir(home) { return toPosix(path.posix.join(toPosix(home), '.agents/notes')); }
 export function ledgerPath(repo, ymd) { return toPosix(path.posix.join(toPosix(repo), 'docs/ledger', `${ymd}.md`)); }
+/**
+ * Lane 74 item 5 (ledger ruling): the ledger stays at `<repo>/docs/ledger/`, because the cross-host mirror,
+ * the id counter and every ledger reader (note-inbox, collect-status, four-read, build-census, decisions
+ * pickup) read it there, but it is never allowed to show up in `git status`: the first write into a
+ * checkout adds `/docs/ledger/` to that checkout's own `.git/info/exclude` (local to the clone, never
+ * tracked, never pushed). Idempotent; only a main checkout (`.git` is a directory) is touched, a linked
+ * worktree's `.git` file is left alone; any failure is swallowed, a send must never fail on this.
+ */
+export const LEDGER_EXCLUDE_LINE = '/docs/ledger/';
+export function ensureLedgerIgnored(repo, fsImpl = fs) {
+  try {
+    const gitDir = path.join(String(repo), '.git');
+    if (!fsImpl.statSync(gitDir).isDirectory()) return { changed: false, reason: 'not-a-main-checkout' };
+    const file = path.join(gitDir, 'info', 'exclude');
+    let text = '';
+    try { text = fsImpl.readFileSync(file, 'utf8'); } catch { /* no exclude file yet */ }
+    if (text.split(/\r?\n/).some((l) => l.trim() === LEDGER_EXCLUDE_LINE || l.trim() === 'docs/ledger/')) return { changed: false, reason: 'already' };
+    fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+    const lead = text === '' || text.endsWith('\n') ? '' : '\n';
+    fsImpl.appendFileSync(file, lead + LEDGER_EXCLUDE_LINE + '\n', 'utf8');
+    return { changed: true, reason: 'added' };
+  } catch {
+    return { changed: false, reason: 'unavailable' };
+  }
+}
 export function ledgerDir(repo) { return toPosix(path.posix.join(toPosix(repo), 'docs/ledger')); }
 export function notesMirrorPath(home, ymd) { return toPosix(path.posix.join(notesDir(home), `${ymd}.md`)); }
 /**

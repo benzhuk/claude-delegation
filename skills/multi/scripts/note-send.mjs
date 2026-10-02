@@ -89,7 +89,7 @@ import {
   HANDLE_RE, toPosix, gitRunner, mainCheckout, makeOrcaRunner,
   classifyPane, isSendable, twoPhaseSend, showPane, readPane,
   resolvePane, isLocalPane, titleToSlug, readBindings,
-  ledgerPath, notesMirrorPath, packetPathFor, packetDetailsFor, resolveDetailsPath, appendLine, writePacket, readIfExists, readLedgerCorpus,
+  ledgerPath, notesMirrorPath, packetPathFor, packetDetailsFor, resolveDetailsPath, ensureLedgerIgnored, appendLine, writePacket, readIfExists, readLedgerCorpus,
   writeOutboxEntry, benInboxPath, notesDir, isMainModule, worktreePathFromEnv,
   readInboxes, wakeAllKindsPath, noUnknownCheckPath, isUnknownRecipient, knownSlugs, recentMirrorTexts,
   killSwitchActive, withoutIds, undeliveredIds, insideGitCheckout,
@@ -820,6 +820,8 @@ export async function runNoteSend(argv, deps = {}) {
     try { return recentMirrorTexts(home, 3, now.getTime(), fsImpl); } catch { return []; }
   })();
 
+  // Lane 74 item 5: the ledger line must not dirty a checkout (local .git/info/exclude, see transport.mjs).
+  for (const repoDir of uniq([targetRepo, senderRepo].filter(Boolean))) ensureLedgerIgnored(repoDir, fsImpl);
   for (const t of ledgerTargets) appendLine(t, envelope, fsImpl);
 
   // R2/R3: the mirror runs exactly once per invocation, here — after the local ledger write has

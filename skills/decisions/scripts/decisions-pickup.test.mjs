@@ -1024,6 +1024,17 @@ test('every dispatch verifies original capture bytes and round before sending', 
   }
 });
 
+test('lane 74 item 5: a pickup through the real note-send leaves git status --porcelain of the durable checkout empty', async (t) => {
+  const fx = gitMainFixture(); t.after(fx.cleanup);
+  const git = () => path.join(fx.repo, '.git');
+  const send = (argv) => runNoteSend(argv, { git, home: fx.home, env: fx.env });
+  const result = await pickupOnce(fx.options, deps(fx, { git, send }));
+  assert.equal(result.status, 'RECORDED');
+  assert.equal(fs.existsSync(pointerFile(fx, result.receipt)), true, 'the pointer is outside the checkout');
+  const porcelain = execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: fx.repo, env: fx.env, encoding: 'utf8' });
+  assert.equal(porcelain, '');
+});
+
 test('raw initial and changed page bytes stay out of the project checkout and public packet', async (t) => {
   const fx = fixture(); t.after(fx.cleanup);
   const firstCanary = 'PRIVATE-INITIAL-CANARY-88411';
