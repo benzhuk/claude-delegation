@@ -692,3 +692,87 @@ describe("review round 2 fixes", () => {
     assert.equal(wtRows(sweep({ apply: true, act: [CLASS_IDS.dirtyWorktree], group: "iso-stall" }), wt).length, 0, "no archive branch, no row");
   });
 });
+
+describe("seam fix round 3", () => {
+  const wtRows3 = (res, wt) => res.rows.filter((r) => r.path && normPath(r.path) === normPath(wt));
+
+  test("FINDING 1: a clean orphan worktree on an unmerged local-only branch is reported, then archived and removed; its branch is deleted next run with no second archive (FINDING 3)", () => {
+    const { repo, bare } = makeRepo("clean-unm", "iso-cu");
+    const wt = addWt(repo, "build/late-1-t1", "wt-late-1-t1"); // addWt commits: clean tree, unmerged, local-only
+    const report = sweep({ apply: true, group: "iso-cu" });
+    const rr = wtRows3(report, wt);
+    assert.equal(rr.length, 1);
+    assert.equal(rr[0].class, CLASS_IDS.unmergedBranch);
+    assert.equal(rr[0].action, "would-archive-then-remove");
+    assert.ok(fs.existsSync(wt), "report mode removes nothing");
+    assert.deepEqual(originRefs(bare), ["refs/heads/main"], "report mode pushes nothing");
+
+    const act = sweep({ apply: true, act: [CLASS_IDS.unmergedBranch], group: "iso-cu" });
+    const ar = wtRows3(act, wt);
+    assert.equal(ar.length, 1);
+    assert.equal(ar[0].action, "archived-then-removed", ar[0].detail);
+    assert.ok(!fs.existsSync(wt));
+    const archives = originRefs(bare).filter((x) => x.startsWith("refs/heads/archive/"));
+    assert.equal(archives.length, 1);
+    assert.equal(fileOnRef(bare, archives[0], "work.txt"), "build/late-1-t1\n");
+
+    const next = sweep({ apply: true, act: [CLASS_IDS.unmergedBranch], group: "iso-cu" });
+    const br = next.rows.find((r) => r.class === CLASS_IDS.unmergedBranch && r.branch === "build/late-1-t1");
+    assert.equal(br.action, "archived-then-deleted", br.detail);
+    assert.match(br.detail, /already inside origin\/archive\//);
+    assert.equal(git(["branch", "--list", "build/late-1-t1"], repo).trim(), "", "branch deleted locally");
+    assert.equal(originRefs(bare).filter((x) => x.startsWith("refs/heads/archive/")).length, 1, "one archive per piece of work");
+  });
+
+  test("FINDING 1: an open record owns the clean worktree; a clean one on origin gets a report-only row; a merged one stays silent", () => {
+    const { repo } = makeRepo("clean-own", "iso-co");
+    const owned = addWt(repo, "build/own-1-t1", "wt-own-1-t1");
+    writeRecord(repo, "wr-own", "open", "build/own-1");
+    const onOrigin = addWt(repo, "build/pushed-1", "wt-pushed-1");
+    git(["push", "-q", "origin", "build/pushed-1"], onOrigin);
+    const merged = addWt(repo, "build/merged-1", "wt-merged-1");
+    git(["merge", "-q", "--no-ff", "-m", "merge", "build/merged-1"], repo);
+    git(["push", "-q", "origin", "main"], repo);
+    const res = sweep({ apply: true, act: [CLASS_IDS.unmergedBranch, CLASS_IDS.dirtyWorktree], group: "iso-co" });
+    assert.equal(wtRows3(res, owned).length, 0);
+    assert.ok(fs.existsSync(owned));
+    const p = wtRows3(res, onOrigin);
+    assert.equal(p.length, 1);
+    assert.equal(p[0].action, "report-only");
+    assert.ok(fs.existsSync(onOrigin));
+    assert.equal(wtRows3(res, merged).length, 0, "merged: the SAFE class owns it");
+  });
+
+  test("FINDING 1: a clean unmerged orphan younger than 24 h is kept", () => {
+    const { repo } = makeRepo("clean-young", "iso-cy");
+    const wt = addWt(repo, "build/young-1", "wt-young-1");
+    const res = sweep({ apply: true, act: [CLASS_IDS.unmergedBranch], group: "iso-cy", plusDays: 0 });
+    const r = wtRows3(res, wt);
+    assert.equal(r.length, 1);
+    assert.equal(r[0].action, "keep");
+    assert.ok(fs.existsSync(wt));
+  });
+
+  test("FINDING 2: the scheduled run (--record) sweeps in report mode with no policy file, and acts on nothing", () => {
+    clearPolicy();
+    const { repo: other } = makeRepo("sched", "iso-sched");
+    fs.mkdirSync(path.join(other, ".agents"), { recursive: true });
+    fs.writeFileSync(path.join(other, ".agents", "project.json"), JSON.stringify({ name: "sched", vcs: "git", main_branch: "main" }));
+    const orphan = addWt(other, "feature/sched-orphan", "sched-orphan");
+    fs.writeFileSync(path.join(orphan, "dirty.txt"), "x\n");
+    const rec = path.join(HOME, uniq("sched-record"));
+    const lines = [];
+    const orig = console.log;
+    console.log = (...a) => lines.push(a.join(" "));
+    try {
+      main(["--apply", "--record", rec], { cwd: other, home: HOME, sweepOpts: { roots: [{ kind: "code", path: path.join(CODE, "iso-sched") }] }, now: Date.now() + 2 * DAY });
+    } finally {
+      console.log = orig;
+    }
+    const out = lines.join("\n");
+    assert.match(out, /SWEEP \(multi-root/);
+    assert.match(out, /mode: report only/);
+    assert.match(out, /would-archive-then-remove/);
+    assert.ok(fs.existsSync(path.join(orphan, "dirty.txt")), "nothing acted");
+  });
+});

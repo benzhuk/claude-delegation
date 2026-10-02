@@ -103,7 +103,7 @@ function localArchiveTips(repo) {
   return new Set(r.ok ? r.out.split("\n").map((s) => s.trim()).filter(Boolean) : []);
 }
 
-function sweepWorktrees(ctx, repo, list, records, rows) {
+function sweepWorktrees(ctx, repo, list, records, rows, main) {
   let owned = 0;
   const archiveTips = localArchiveTips(repo);
   for (const wt of list) {
@@ -127,44 +127,57 @@ function sweepWorktrees(ctx, repo, list, records, rows) {
       rows.push(row(CLASS_IDS.dirtyWorktree, { repo, path: wt.path, branch: wt.branch || "", status: "orphan", action: "keep", detail: "git status unreadable" }));
       continue;
     }
+    // A clean orphan on an unmerged, local-only branch is the shape the loop's phase-end commit leaves: its commits live
+    // nowhere else, so it gets the same archive-then-remove as a dirty one (one rule: an orphan's unmerged work is archived).
+    let cls = CLASS_IDS.dirtyWorktree;
+    let what = `${counts.dirty} changed path(s)`;
     if (counts.dirty === 0 && counts.ignored === 0) {
       // Archived and pushed, but git refused the removal: clean, detached at an archive tip. Keep reporting it.
       if (!wt.branch && archiveTips.has(headSha(wt.path))) {
         rows.push(row(CLASS_IDS.dirtyWorktree, { repo, path: wt.path, branch: "(detached)", status: "archived", action: "report-only", detail: "archived; removal refused earlier, needs a hand" }));
+        continue;
       }
-      continue; // otherwise clean: the SAFE class and the branch class own it
+      if (!wt.branch || !main || PROTECTED.has(wt.branch) || wt.branch.startsWith("archive/")) continue; // the SAFE class and the branch class own the rest
+      const full = `refs/heads/${wt.branch}`;
+      if (!hasRef(repo, full) || isAncestor(repo, full, main.baseRef)) continue; // merged (or gone): the SAFE class owns it
+      if (hasRef(repo, `refs/remotes/origin/${wt.branch}`)) {
+        rows.push(row(CLASS_IDS.unmergedBranch, { repo, path: wt.path, branch: wt.branch, status: "orphan", action: "report-only", detail: "clean, unmerged, branch on origin; a person decides" }));
+        continue;
+      }
+      cls = CLASS_IDS.unmergedBranch;
+      what = "clean, unmerged, local-only";
     }
     const base = { repo, path: wt.path, branch: wt.branch || "(detached)", status: "orphan" };
     const idle = ctx.deps.idleHours(wt.path, { home: ctx.home, now: ctx.nowMs });
     if (!Number.isFinite(idle) || idle < IDLE_FLOOR) {
-      rows.push(row(CLASS_IDS.dirtyWorktree, { ...base, action: "keep", detail: `dirty (${counts.dirty} changed, ${counts.ignored} ignored); idle ${Number.isFinite(idle) ? `${Math.floor(idle)}h < ${IDLE_FLOOR}h` : "unknown"}` }));
+      rows.push(row(cls, { ...base, action: "keep", detail: `${cls === CLASS_IDS.unmergedBranch ? what : `dirty (${counts.dirty} changed, ${counts.ignored} ignored)`}; idle ${Number.isFinite(idle) ? `${Math.floor(idle)}h < ${IDLE_FLOOR}h` : "unknown"}` }));
       continue;
     }
     if (counts.ignored > 0) {
-      rows.push(row(CLASS_IDS.dirtyWorktree, { ...base, action: "keep", detail: `ignored content (${counts.ignored} path(s)) would be lost; not removed` }));
+      rows.push(row(cls, { ...base, action: "keep", detail: `ignored content (${counts.ignored} path(s)) would be lost; not removed` }));
       continue;
     }
     const name = path.basename(wt.path);
     const btoRemote = matchedExcludedRemote(wt.path, ctx.excludeRemotes);
     if (btoRemote) {
-      rows.push(row(CLASS_IDS.dirtyWorktree, { ...base, action: "keep", detail: `excluded (BTO remote: origin matches ${btoRemote})` }));
+      rows.push(row(cls, { ...base, action: "keep", detail: `excluded (BTO remote: origin matches ${btoRemote})` }));
       continue;
     }
-    if (!ctx.acts(CLASS_IDS.dirtyWorktree)) {
-      rows.push(row(CLASS_IDS.dirtyWorktree, { ...base, action: "would-archive-then-remove", detail: `${counts.dirty} changed path(s), idle ${Math.floor(idle)}h; report mode` }));
+    if (!ctx.acts(cls)) {
+      rows.push(row(cls, { ...base, action: "would-archive-then-remove", detail: `${what}, idle ${Math.floor(idle)}h; report mode` }));
       continue;
     }
     // The in-use check is a rename on win32: it runs only for a class that is about to act (report mode never touches a tree).
     if (ctx.deps.pathHasOpenProcess(wt.path) !== false) {
-      rows.push(row(CLASS_IDS.dirtyWorktree, { ...base, action: "keep", detail: "a process holds this directory (or it could not be checked)" }));
+      rows.push(row(cls, { ...base, action: "keep", detail: "a process holds this directory (or it could not be checked)" }));
       continue;
     }
     if (!ctx.repoVerified(repo)) {
-      rows.push(row(CLASS_IDS.dirtyWorktree, { ...base, action: "skipped", detail: "origin fetch failed this run; unverifiable" }));
+      rows.push(row(cls, { ...base, action: "skipped", detail: "origin fetch failed this run; unverifiable" }));
       continue;
     }
     const r = archiveThenRemoveWorktree({ repoRoot: repo, wtPath: wt.path, name, excludeRemotes: ctx.excludeRemotes });
-    rows.push(row(CLASS_IDS.dirtyWorktree, { ...base, action: r.ok ? "archived-then-removed" : r.skipped ? "skipped" : "failed", detail: r.ok ? `${r.ref} ${r.sha}` : r.skipped || r.error }));
+    rows.push(row(cls, { ...base, action: r.ok ? "archived-then-removed" : r.skipped ? "skipped" : "failed", detail: r.ok ? `${r.ref} ${r.sha}` : r.skipped || r.error }));
   }
   return owned;
 }
@@ -234,6 +247,14 @@ function sweepBranches(ctx, repo, list, records, rows, main) {
     }
     if (!ctx.repoVerified(repo)) {
       rows.push(row(CLASS_IDS.unmergedBranch, { ...base, action: "skipped", detail: "origin fetch failed this run; unverifiable" }));
+      continue;
+    }
+    // Already inside an archive on origin (its worktree was archived): delete locally, never push a second archive.
+    const held = git(["for-each-ref", "--contains", full, "--format=%(refname:short)", "refs/remotes/origin/archive/"], repo);
+    const inside = held.ok ? held.out.split("\n").map((s) => s.trim()).filter(Boolean)[0] : null;
+    if (inside && git(["ls-remote", "origin", `refs/heads/${inside.replace(/^origin\//, "")}`], repo).out?.trim()) {
+      const del = git(["branch", "-D", branch], repo);
+      rows.push(row(CLASS_IDS.unmergedBranch, { ...base, action: del.ok ? "archived-then-deleted" : "failed", detail: del.ok ? `already inside ${inside}; no second archive` : del.error }));
       continue;
     }
     const r = archiveThenDeleteBranch({ repoRoot: repo, branch, excludeRemotes: ctx.excludeRemotes });
@@ -371,7 +392,7 @@ export function runSweep({ home, roots, apply, policy, nowMs, deps, exclude = []
       if (!list) continue;
       const records = collectRecords([repo, ...list.map((w) => w.path)], deps.listRecords);
       const main = resolveMain(repo);
-      owned += sweepWorktrees(ctx, repo, list, records, rows);
+      owned += sweepWorktrees(ctx, repo, list, records, rows, main);
       sweepBranches(ctx, repo, list, records, rows, main);
       sweepMergedOrigin(ctx, repo, list, records, rows, main);
       sweepUntracked(ctx, repo, rows);

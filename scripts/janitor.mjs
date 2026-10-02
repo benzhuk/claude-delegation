@@ -2233,7 +2233,8 @@ function sweepPathInUse(p) {
 function runSweepIfWanted({ argv, home, applyRequested, actSwitchedOff, now, sweepOpts, mainBranch }) {
   try {
     const policy = loadSweepPolicy(home);
-    if (!argv.includes("--sweep") && !policy.present) return null;
+    // The scheduled run (--record) always sweeps; with no policy file every class is report-only (spec item 7).
+    if (!argv.includes("--sweep") && !argv.includes("--record") && !policy.present) return null;
     // A test run (node --test sets NODE_TEST_CONTEXT, inherited by children) sweeps ONLY an injected root list:
     // neither the default roots nor a policy file's roots (a test that omits `home` reads the REAL policy file).
     if (!sweepOpts.roots && process.env.NODE_TEST_CONTEXT) return null;
