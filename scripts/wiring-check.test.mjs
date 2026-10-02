@@ -1490,3 +1490,51 @@ test("hooks.json runs wiring-check.mjs --line --hook on SessionStart, pointed at
   assert.ok(fs.existsSync(path.join(repoRoot, referenced)), `${referenced} must exist`);
 });
 
+
+// ---- Lane 74 item 6: the SessionStart hook re-registers a stale janitor timer (injected, never a real scheduler) ----
+
+test("lane 74 item 6: --hook calls the injected timer refresh after its own output and keeps exit 0", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  let calls = 0;
+  const refreshTimer = () => { calls += 1; return { action: "refreshed", reason: "re-registered from /new (was /old)" }; };
+  const { code, out } = runMainCapturing(["--line", "--hook"], { home, refreshTimer });
+  assert.equal(code, 0);
+  assert.equal(calls, 1);
+  assert.match(out, /^janitor timer: refreshed: re-registered from \/new \(was \/old\)$/m);
+});
+
+test("lane 74 item 6: no --hook, no refresh; no injected refresh, no refresh and no output", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  let calls = 0;
+  const refreshTimer = () => { calls += 1; return { action: "refreshed", reason: "x" }; };
+  runMainCapturing(["--line"], { home, refreshTimer });
+  assert.equal(calls, 0, "only the SessionStart caller refreshes");
+  const bare = runMainCapturing(["--line", "--hook"], { home });
+  assert.doesNotMatch(bare.out, /janitor timer/);
+});
+
+test("lane 74 item 6: a refresh that throws or reports none/current fails open and silent", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const thrown = runMainCapturing(["--line", "--hook"], { home, refreshTimer: () => { throw new Error("scheduler exploded"); } });
+  assert.equal(thrown.code, 0);
+  assert.doesNotMatch(thrown.out, /janitor timer|exploded/);
+  for (const action of ["none", "current"]) {
+    const r = runMainCapturing(["--line", "--hook"], { home, refreshTimer: () => ({ action, reason: "r" }) });
+    assert.doesNotMatch(r.out, /janitor timer/);
+  }
+});
+
+test("lane 74 item 6: the real CLI --hook entry loads the real refresh and, in a sealed home with no timer, adds nothing", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const { code, stdout } = runCli(["--line", "--hook"], home);
+  assert.equal(code, 0);
+  assert.doesNotMatch(stdout, /janitor timer/);
+});

@@ -6,7 +6,7 @@
 //
 // checkWiring() is pure with respect to its inputs (home, platform, fsImpl, now, lists, env are all
 // passed in with real defaults) and READS ONLY - it never edits settings.json, never installs a
-// hook, never deletes a file, never writes anything at all.
+// hook, never deletes a file, never writes anything at all. (One exception, lane 74 item 6: the CLI --hook entry also re-registers an already-registered janitor timer from this release, via scripts/janitor-timer-refresh.mjs; checkWiring() and main() themselves never do.)
 //
 // Two check lists are merged by id, second wins: this file's sibling `required-wiring.default.json`
 // (the plugin's own needs - what it wires or reads on every machine) and an optional
@@ -534,8 +534,27 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   // --hook: a Claude Code command hook's non-zero exit drops its stdout (a non-blocking error), so
   // the SessionStart caller keeps exit 0 and the line still reaches the session; the red exit is
   // for a human or agent running the CLI directly (bare `--line`, `--json`, or the table).
-  if (argv.includes("--hook")) return 0;
+  if (argv.includes("--hook")) {
+    refreshTimerOnHook(opts.refreshTimer);
+    return 0;
+  }
   return (result.ok && !stale.stale) ? 0 : 1;
+}
+
+/** Lane 74 item 6: after the hook's own output, a registered janitor timer that still runs an older
+ * release is re-registered from THIS release. `refreshTimer` is injected (the CLI entry passes the real
+ * scripts/janitor-timer-refresh.mjs one, tests pass a stub), so a library call or a test never reaches a
+ * scheduler. Fails open: any error ends in silence; one line only when the refresh acted or was refused. */
+export function refreshTimerOnHook(refreshTimer) {
+  if (typeof refreshTimer !== "function") return;
+  try {
+    const r = refreshTimer();
+    if (r && (r.action === "refreshed" || r.action === "refused" || r.action === "failed")) {
+      console.log(`janitor timer: ${r.action}: ${r.reason}`);
+    }
+  } catch {
+    /* fail open */
+  }
 }
 
 /**
@@ -560,5 +579,13 @@ function isMainModule() {
 }
 
 if (isMainModule()) {
-  process.exit(main());
+  const entryOpts = {};
+  if (process.argv.includes("--hook")) {
+    try {
+      entryOpts.refreshTimer = (await import("./janitor-timer-refresh.mjs")).refreshIfRegistered;
+    } catch {
+      /* fail open: the check still runs without the refresh */
+    }
+  }
+  process.exit(main(undefined, entryOpts));
 }
