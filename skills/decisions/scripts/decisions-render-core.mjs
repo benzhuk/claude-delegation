@@ -26,11 +26,11 @@ export class RefusedError extends Error {}
 
 /**
  * The page-lint rules the render does NOT run on its own page, because it already owns the
- * concern: `checkWaitingItem` and `decisions-read.mjs` (finalizeDone) cover the waiting-item shape
- * and the Done line, and the history template writes " — " between a date link and its summary.
- * Everything else in page-lint's `decisions` kind runs (lane 39, spec Revision 2 F4).
+ * concern: `checkWaitingItem` covers the waiting-item shape, and the history template writes
+ * " — " between a date link and its summary. `done-last` and `top-level-toggle` DO run (lane 72):
+ * the Done checkbox is the last block inside the Waiting toggle and every top-level block is a toggle.
  */
-export const PAGE_LINT_SKIP = ['open-question-visible', 'decision-block', 'done-last', 'em-dash-arrow'];
+export const PAGE_LINT_SKIP = ['open-question-visible', 'decision-block', 'em-dash-arrow'];
 
 /** Fail-open presence test for a kill-switch file: anything but "it does not exist" counts as present. */
 function killSwitchPresent(p) {

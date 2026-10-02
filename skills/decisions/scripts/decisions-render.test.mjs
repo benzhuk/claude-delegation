@@ -19,7 +19,7 @@ import {
   formatSinceHeading, formatClearedTimestamp, formatMonthDay,
   run, defaultReadPageWithCli, defaultReplaceMdWithCli,
 } from './decisions-render.mjs';
-import { PAGE_LINT_SKIP } from './decisions-render-core.mjs';
+import { PAGE_LINT_SKIP, REPO_BLOB_BASE } from './decisions-render-core.mjs';
 import { toggleFiles, withTogglesGit } from './toggles-fixtures.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
@@ -960,8 +960,8 @@ test('CLI: real process, no arguments at all — exits 2, no network needed', ()
 const NO_SWITCH = path.join(os.tmpdir(), 'page-lint-no-such-kill-switch');
 const PLANTED_SESSION = 'since: 2026-09-27T18:16:00Z\n- The collector runs on Netcup every 15 minutes.\n- Written by Claude Code';
 
-test('page-lint: the render skip list is exactly the four rules the render already owns', () => {
-  assert.deepEqual(PAGE_LINT_SKIP, ['open-question-visible', 'decision-block', 'done-last', 'em-dash-arrow']);
+test('page-lint: the render skip list is exactly the three rules the render already owns; done-last and top-level-toggle run', () => {
+  assert.deepEqual(PAGE_LINT_SKIP, ['open-question-visible', 'decision-block', 'em-dash-arrow']);
 });
 
 test('page-lint: the composed page is clean under the decisions kind with that skip list', () => {
@@ -1017,4 +1017,200 @@ test('page-lint: the kill switch skips the call, fails open, logs one line, and 
   } finally {
     fs.unlinkSync(switchFile);
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 72: the three agent-owned toggles (Goal card, Bearings, Components), the components path
+// guard, and the page shape (every top-level block a toggle). Fixtures from toggles-fixtures.mjs.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const REAL_REPO = path.join(HERE, '..', '..', '..');
+const evidence = (name) => p('docs', 'work', 'evidence', name);
+const topLevelHeadings = (page) => page.split('\n').filter((l) => /^# /.test(l));
+const toggleOf = (page, name) => {
+  const lines = page.split('\n');
+  const at = lines.indexOf(`# ${name} {toggle="true"}`);
+  assert.ok(at > -1, `${name} toggle present`);
+  let end = at + 1;
+  while (end < lines.length && !/^# /.test(lines[end])) end += 1;
+  return lines.slice(at, end).filter((l, i, a) => !(l === '' && i === a.length - 1));
+};
+
+test('toggles: the page opens with Goal card, Bearings, Components, then Waiting on you now, then History, all toggles', () => {
+  const { deps } = renderDeps();
+  const page = render({ repo: REPO }, deps);
+  assert.deepEqual(topLevelHeadings(page), [
+    '# Goal card {toggle="true"}',
+    '# Bearings {toggle="true"}',
+    '# Components {toggle="true"}',
+    '# Waiting on you now {toggle="true"}',
+    '# History {toggle="true"}',
+  ]);
+  for (const name of ['Goal card', 'Bearings', 'Components', 'Waiting on you now', 'History']) {
+    const block = toggleOf(page, name);
+    assert.equal(block[block.length - 1], '\t<empty-block/>', `${name} ends with a tab-indented empty block`);
+    assert.ok(block.slice(1).every((l) => l === '' || l.startsWith('\t')), `${name} children are tab-indented`);
+  }
+  assert.deepEqual(lintPage(page, { kind: 'decisions', skip: PAGE_LINT_SKIP }), []);
+});
+
+test('toggles: rendering twice from the same sources gives the same bytes (regenerated, never hand-edited)', () => {
+  const a = render({ repo: REPO }, renderDeps().deps);
+  const b = render({ repo: REPO }, renderDeps().deps);
+  assert.equal(a, b);
+});
+
+test('Goal card toggle: the card text in full plus "main at <sha>", a bare path wrapped in backticks', () => {
+  const block = toggleOf(render({ repo: REPO }, renderDeps().deps), 'Goal card');
+  assert.equal(block[1], '\tmain at abc1234');
+  assert.equal(block[2], '\tGOAL: Agent work gets cheaper, faster and more reliable at equal or better quality.');
+  assert.ok(block.includes('\tNOT: waiting to be asked. NOT: a rule no script checks.'));
+  assert.ok(block.includes('\tSTOP: bearings says RE-PLAN twice in a row or CUT: stop that lane.'));
+  assert.ok(block.includes('\tSOURCE: `docs/GOALS.md`'), 'Notion would autolink a bare docs/GOALS.md');
+  assert.equal(block.length, 1 + 1 + 5 + 1, 'heading, sha line, five card lines, empty block');
+});
+
+test('Goal card toggle: the sha comes from git log over the goals sources on origin/main, run in --repo', () => {
+  const calls = [];
+  const { deps } = renderDeps();
+  const inner = deps.execGit;
+  deps.execGit = (args, cwd) => { calls.push({ args, cwd }); return args[0] === 'log' ? 'beef123\n' : inner(args, cwd); };
+  const page = render({ repo: REPO }, deps);
+  assert.ok(page.includes('\tmain at beef123\n'));
+  assert.deepEqual(calls.find((c) => c.args[0] === 'log'), {
+    args: ['log', '-1', '--format=%h', 'origin/main', '--', 'docs/GOALS.md', 'docs/goals/card.md'],
+    cwd: REPO,
+  });
+});
+
+test('Goal card toggle: a missing card.md or a failing git log is BLIND (exit 3), an empty card refuses (exit 2)', () => {
+  const noCard = renderDeps();
+  noCard.fs.map.delete(p('docs', 'goals', 'card.md'));
+  assert.throws(() => render({ repo: REPO }, noCard.deps), BlindError);
+  const gitFails = renderDeps();
+  const inner = gitFails.deps.execGit;
+  gitFails.deps.execGit = (args, cwd) => { if (args[0] === 'log') throw new Error('fatal: bad revision'); return inner(args, cwd); };
+  assert.throws(() => render({ repo: REPO }, gitFails.deps), (e) => e instanceof BlindError && /goal card/.test(e.message));
+  const emptyCard = renderDeps({ [p('docs', 'goals', 'card.md')]: '\n\n' });
+  assert.throws(() => render({ repo: REPO }, emptyCard.deps), (e) => e instanceof RefusedError && /card\.md is empty/.test(e.message));
+});
+
+test('Bearings toggle: decision, condition, next action, prediction with its check date, and the three links', () => {
+  const block = toggleOf(render({ repo: REPO }, renderDeps().deps), 'Bearings');
+  assert.equal(block[1], '\tDecision: CONTINUE (2026-10-01).');
+  assert.match(block[2], /^\tCondition: if by 10\/2 3:00 PM no census read exists on origin/);
+  assert.match(block[3], /^\tNext action: run the prediction check at 3:00 PM today/);
+  assert.match(block[4], /^\tPrediction, check 10\/2 3:00 PM: origin main holds the window read/);
+  assert.equal(
+    block[5],
+    '\tLinks: [Goals page](https://www.notion.so/3e3da11277a1813cb326c42ed97a1d5d), '
+    + `[assessment](${REPO_BLOB_BASE}/docs/work/evidence/2026-10-01-bearings-assessment.md), `
+    + `[response](${REPO_BLOB_BASE}/docs/work/evidence/2026-10-01-bearings-response.md).`,
+  );
+});
+
+test('Bearings toggle: the newest assessment by date is used; an absent condition is omitted, never invented', () => {
+  const NEW_A = 'RE-PLAN\n\n- Decision: `RE-PLAN`.\n- Next action: cut the lane and write the new spec.\n';
+  const NEW_R = 'Check on 10/9 9:00 AM: the new spec is on origin.\n';
+  const { deps } = renderDeps({
+    [evidence('2026-10-05-bearings-assessment.md')]: NEW_A,
+    [evidence('2026-10-05-bearings-response.md')]: NEW_R,
+  });
+  const block = toggleOf(render({ repo: REPO }, deps), 'Bearings');
+  assert.equal(block[1], '\tDecision: RE-PLAN (2026-10-05).');
+  assert.ok(!block.some((l) => l.includes('Condition:')));
+  assert.equal(block[2], '\tNext action: cut the lane and write the new spec.');
+  assert.equal(block[3], '\tPrediction, check 10/9 9:00 AM: the new spec is on origin.');
+  assert.ok(block[4].includes('2026-10-05-bearings-assessment.md') && block[4].includes('2026-10-05-bearings-response.md'));
+});
+
+test('Bearings toggle: a missing field refuses (exit 2) naming it, a missing file is BLIND (exit 3)', () => {
+  const noNext = renderDeps({ [evidence('2026-10-01-bearings-assessment.md')]: 'CONTINUE\n\n- Condition: none.\n' });
+  assert.throws(() => render({ repo: REPO }, noNext.deps), (e) => e instanceof RefusedError && /Next action/.test(e.message));
+  const noCheck = renderDeps({ [evidence('2026-10-01-bearings-response.md')]: 'I accept the verdict.\n' });
+  assert.throws(() => render({ repo: REPO }, noCheck.deps), (e) => e instanceof RefusedError && /Check on/.test(e.message));
+  const badVerdict = renderDeps({ [evidence('2026-10-01-bearings-assessment.md')]: 'MAYBE\n- Next action: x.\n' });
+  assert.throws(() => render({ repo: REPO }, badVerdict.deps), (e) => e instanceof RefusedError && /MAYBE/.test(e.message));
+  const noResponse = renderDeps();
+  noResponse.fs.map.delete(evidence('2026-10-01-bearings-response.md'));
+  assert.throws(() => render({ repo: REPO }, noResponse.deps), BlindError);
+  const none = renderDeps();
+  for (const k of [...none.fs.map.keys()]) if (k.includes('bearings')) none.fs.map.delete(k);
+  assert.throws(() => render({ repo: REPO }, none.deps), BlindError);
+  none.fs.map.set(evidence('notes.md'), 'x');
+  assert.throws(() => render({ repo: REPO }, none.deps), (e) => e instanceof RefusedError && /bearings-assessment/.test(e.message));
+});
+
+test('Components toggle: one line per component with its name, state word and what it does for the goal', () => {
+  const block = toggleOf(render({ repo: REPO }, renderDeps().deps), 'Components');
+  assert.deepEqual(block.slice(1, 4), [
+    '\t- Decisions page (fed): Puts what only Ben can decide where he reads',
+    '\t- Build census (measured): Counts top-tier tokens and hours per build',
+    '\t- Research (missing): A source-preserving research route',
+  ]);
+  assert.equal(block.length, 5);
+});
+
+test('Components guard: a skills/, scripts/ or hooks/ path absent from origin/main refuses the render, naming the component and path', () => {
+  const { deps } = renderDeps();
+  deps.execGit = withTogglesGit(fakeGit(), { absent: ['scripts/build-census.mjs'] });
+  assert.throws(() => render({ repo: REPO }, deps), (e) => e instanceof RefusedError
+    && /absent from origin\/main/.test(e.message) && /Build census: scripts\/build-census\.mjs/.test(e.message));
+  const retired = renderDeps({ [p('docs', 'components.md')]: '- continue | Bound completion check | fed | `skills/continue/`\n' });
+  retired.deps.execGit = withTogglesGit(fakeGit(), { absent: ['skills/continue/'] });
+  assert.throws(() => render({ repo: REPO }, retired.deps), (e) => e instanceof RefusedError && /skills\/continue\//.test(e.message));
+});
+
+test('Components guard: a path outside skills/, scripts/ and hooks/ is not checked', () => {
+  const { deps } = renderDeps({ [p('docs', 'components.md')]: '- Pane setup | A pane layout | unfed | `docs/pane-setup.md`\n' });
+  deps.execGit = withTogglesGit(fakeGit(), { absent: ['docs/pane-setup.md'] });
+  assert.doesNotThrow(() => render({ repo: REPO }, deps));
+});
+
+test('Components: a state word outside the five, a malformed line, or no component refuses', () => {
+  const bad = (text, re) => assert.throws(() => render({ repo: REPO }, renderDeps({ [p('docs', 'components.md')]: text }).deps), (e) => e instanceof RefusedError && re.test(e.message));
+  bad('- Thing | does a thing | shipped | `scripts/x.mjs`\n', /state "shipped"/);
+  bad('- Thing | does a thing\n', /not "name \| what it does \| state \| paths"/);
+  bad('<!-- only a comment -->\n', /lists no component/);
+});
+
+test('Components: the header comment is not rendered', () => {
+  const page = render({ repo: REPO }, renderDeps().deps);
+  assert.ok(!page.includes('State words:'));
+});
+
+test('real docs/components.md: every line parses with a spec state word and every backticked path exists in this tree', async () => {
+  const { parseComponents, componentPaths, COMPONENT_STATES } = await import('./decisions-render-sections.mjs');
+  const text = fs.readFileSync(path.join(REAL_REPO, 'docs', 'components.md'), 'utf8');
+  const rows = parseComponents(text);
+  assert.ok(rows.length >= 15);
+  for (const r of rows) assert.ok(COMPONENT_STATES.includes(r.state), `${r.name}: ${r.state}`);
+  const body = text.replace(/<!--[\s\S]*?-->/g, '');
+  const paths = componentPaths(body);
+  assert.ok(paths.length > 15);
+  for (const rel of paths) assert.ok(fs.existsSync(path.join(REAL_REPO, rel)), `docs/components.md names ${rel}, which does not exist`);
+  assert.ok(!/skills\/continue/.test(body), 'continue is retired and not listed');
+});
+
+test('real bearings pair: the newest assessment and response in this tree parse into every field', async () => {
+  const { parseBearings } = await import('./decisions-render-sections.mjs');
+  const dir = path.join(REAL_REPO, 'docs', 'work', 'evidence');
+  const dates = fs.readdirSync(dir).map((n) => /^(\d{4}-\d{2}-\d{2})-bearings-assessment\.md$/.exec(n)).filter(Boolean).map((m) => m[1]).sort();
+  const date = dates[dates.length - 1];
+  const b = parseBearings(
+    fs.readFileSync(path.join(dir, `${date}-bearings-assessment.md`), 'utf8'),
+    fs.readFileSync(path.join(dir, `${date}-bearings-response.md`), 'utf8'),
+    date,
+  );
+  assert.match(b.verdict, /^(CONTINUE|RE-PLAN|CUT)$/);
+  assert.ok(b.nextAction.length > 10 && b.prediction.length > 10);
+  assert.match(b.checkDate, /^\d{1,2}\/\d{1,2} \d{1,2}:\d{2} [AP]M$/);
+});
+
+test('Waiting toggle: Done is the last block, the comment callout is just above it', () => {
+  const block = toggleOf(render({ repo: REPO }, renderDeps().deps), 'Waiting on you now');
+  assert.equal(block[block.length - 1], '\t<empty-block/>');
+  assert.equal(block[block.length - 2], '\t- [ ] Done');
+  assert.equal(block[block.length - 3], '\t</callout>');
+  assert.ok(block.includes('\t## What is going on') && block.some((l) => l.startsWith('\t## This session')));
 });

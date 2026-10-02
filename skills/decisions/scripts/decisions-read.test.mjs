@@ -1292,3 +1292,75 @@ test('by-hand action-request item is spelled "Done by hand", never read as the p
   assert.equal(ticked.warnings.length, 0);
   assert.equal(ticked.done, false);
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lane 72: the Done checkbox is the last block inside the `Waiting on you now` toggle
+// ─────────────────────────────────────────────────────────────────────────────
+
+const NESTED = (done = '- [ ] Done', ...after) => L(
+  '# Goal card {toggle="true"}',
+  '\tmain at abc1234',
+  '\t<empty-block/>',
+  '# Waiting on you now {toggle="true"}',
+  '\t<details>',
+  '\t<summary>Pick one</summary>',
+  '\t\t- [ ] a',
+  '\t\t- [ ] b',
+  '\t\tNo default: needs the owner',
+  '\t\t<empty-block/>',
+  '\t</details>',
+  `\t${done}`,
+  ...after,
+  '\t<empty-block/>',
+  '# History {toggle="true"}',
+  '\t- a day',
+  '\t<empty-block/>',
+);
+
+test('nested Done: tab-indented last block of the Waiting toggle is the page Done, with no warning, though History follows', () => {
+  const doc = parseDocument(NESTED());
+  assert.equal(doc.done, false);
+  assert.equal(doc.doneLabel, 'Done');
+  assert.deepEqual(doc.warnings, []);
+  assert.equal(doc.decisions.length, 1);
+  assert.equal(doc.decisions[0].options.length, 2, 'Done is never an option');
+  assert.equal(computeExitCode(doc), 0);
+});
+
+test('nested Done: ticked is read as done=true, and a cleared label is carried', () => {
+  assert.equal(parseDocument(NESTED('- [x] Done')).done, true);
+  const cleared = parseDocument(NESTED('- [ ] Done (last cleared: Oct 1, 2026, 8:30 PM America/New_York)'));
+  assert.equal(cleared.doneLabel, 'Done (last cleared: Oct 1, 2026, 8:30 PM America/New_York)');
+  assert.deepEqual(cleared.warnings, []);
+});
+
+test('nested Done: another block after it inside the Waiting toggle WARNs "Done is not the last line"', () => {
+  const doc = parseDocument(NESTED('- [ ] Done', '\tA block after Done.'));
+  assert.ok(doc.warnings.some((w) => w.text === 'Done is not the last line'), JSON.stringify(doc.warnings));
+});
+
+test('nested Done: a Done tab-indented under a toggle that is not Waiting still WARNs "Done line is indented"', () => {
+  const md = L(
+    '# Waiting on you now {toggle="true"}', '\t<empty-block/>',
+    '# History {toggle="true"}', '\t- [ ] Done', '\t<empty-block/>',
+  );
+  const doc = parseDocument(md);
+  assert.ok(doc.warnings.some((w) => w.text === 'Done line is indented'));
+});
+
+test('nested Done: a plain (non-toggle) Waiting heading with an indented Done still WARNs, and the legacy column-0 layout still parses clean', () => {
+  const plain = L('# Waiting on you now', '<details>', '<summary>Pick</summary>', '\t- [ ] a', '\tNo default: x', '</details>', '\t- [ ] Done');
+  assert.ok(parseDocument(plain).warnings.some((w) => w.text === 'Done line is indented'));
+  const legacy = L('# Waiting on you now', '<details>', '<summary>Pick</summary>', '\t- [ ] a', '\tNo default: x', '</details>', '- [ ] Done', '<empty-block/>');
+  const doc = parseDocument(legacy);
+  assert.deepEqual(doc.warnings, []);
+  assert.equal(doc.done, false);
+});
+
+test('nested Done: a comment and a tick inside the toggle are still attached to their item, and Done does not turn into an option', () => {
+  const md = NESTED('- [x] Done').replace('\t\t- [ ] a', '\t\t- [x] a').replace('\t\t<empty-block/>\n\t</details>', '\t\t\\*\\* a note from Ben\n\t\t<empty-block/>\n\t</details>');
+  const doc = parseDocument(md);
+  assert.equal(doc.done, true);
+  assert.equal(doc.decisions[0].status, 'TICKED');
+  assert.equal(doc.decisions[0].comments.length, 1);
+});
