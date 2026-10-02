@@ -83,7 +83,8 @@ mention says where to find it once mirrored.
    (required when `Spec-from:` is on or after 2026-09-29; `close --closeout` removes it).
    `work-record.mjs accept` refuses a record with no `Workflow:` line when `Spec-from:` is on
    or after 2026-10-01 (`workflow-missing`; an older record only warns), and a bare `none`
-   with no reason (`workflow-invalid`); the census prints each record's `Workflow:` value.
+   with no reason (`workflow-invalid`), and a `Workflow:` that names a run without `maxRounds=<n>` when
+   `Spec-from:` is on or after 2026-10-02T03:00:00Z (`workflow-maxrounds-missing`; accept-prep writes it); the census prints each record's `Workflow:` value.
    Set `Opened:` to when YOU
    start the build (the ask/spec dispatch time), never later and never at accept time — a
    record whose `Opened:` sits minutes before its own acceptance measures nothing but the
@@ -386,7 +387,10 @@ Then make ONE Workflow call, `{scriptPath:
 worktree?, branch?, startFrom? }], reviewerBriefPath?, integratorBriefPath?,
 integrationWorktree?, integrationBranch?, integrationGate?, worktreeRoot?, leadSession?,
 recordPath?, censusMarker?, seam?, secondHost?, secondHostGate? }` (worked examples:
-`references/build-loop-args.example.json`). A territory with
+`references/build-loop-args.example.json`). **The round bound is the `maxRounds` argument (default
+3), never a peer message**: the loop honors only `args.maxRounds`, and accept-prep writes the value
+actually used into the record as `Workflow: <run id> maxRounds=<n>` (`--max-rounds`, default 3), which
+`work-record.mjs accept` requires for a run-id `Workflow:` line. A territory with
 `briefPath`/`worktree`/`branch` all given is "given", with all three absent the launch's
 setup stage cuts it from `baseSha` and writes its briefs; never mix the two in one call
 (`mixed-territory-modes`), and an all-given call also passes `reviewerBriefPath` and

@@ -218,12 +218,21 @@ export function checkScratchField(record, opts = {}) {
 // CLI flag moves it, `opts.workflowFrom` is for tests only.
 export const WORKFLOW_FROM = "2026-10-01T00:00:00Z";
 
-// opts: { workflowFrom? } -> { refusal: { code, message } | null, warning: string | null }.
+// lane 73 (F1): from this instant on (judged on the record's own Spec-from:, same discipline as
+// WORKFLOW_FROM), a `Workflow:` value that names a run must carry `maxRounds=<n>`, the loop's
+// round bound actually used (accept-prep writes it). No CLI flag moves it; `opts.maxRoundsFrom`
+// is for tests only. A record already accepted is never re-checked by this, since only accept
+// and check-acceptance call checkWorkflowField.
+export const MAXROUNDS_FROM = "2026-10-02T03:00:00Z";
+
+// opts: { workflowFrom?, maxRoundsFrom? } -> { refusal: { code, message } | null, warning: string | null }.
 // Used by checkAcceptance (and therefore accept and accept-prep's check-acceptance step).
 // - Present and `<run id>` or `none, <reason>`: fine at any date.
 // - Present as a bare `none` (no reason): `workflow-invalid` at any date.
 // - Absent: `workflow-missing` when Spec-from: is parseable AND on or after workflowFrom;
 //   any other record without the line gets a warning only.
+// - Present and naming a run (not `none, <reason>`) with no `maxRounds=<n>` token: `workflow-maxrounds-missing`
+//   when Spec-from: is parseable AND on or after maxRoundsFrom; older records are not refused.
 export function checkWorkflowField(record, opts = {}) {
   const workflowFrom = opts.workflowFrom ?? WORKFLOW_FROM;
   const workflowFromMs = Date.parse(workflowFrom);
@@ -234,6 +243,20 @@ export function checkWorkflowField(record, opts = {}) {
         refusal: { code: "workflow-invalid", message: `Workflow: "${workflow}" must be a run id, or "none, <reason>" saying why the build-loop Workflow was not used` },
         warning: null,
       };
+    }
+    if (!/^none\b/i.test(workflow) && !/(^|\s)maxRounds=\d+(\s|$)/.test(workflow)) {
+      const maxRoundsFrom = opts.maxRoundsFrom ?? MAXROUNDS_FROM;
+      const maxRoundsFromMs = Date.parse(maxRoundsFrom);
+      const specMs = Date.parse(record.fields.specFrom ?? "");
+      if (!Number.isNaN(specMs) && !Number.isNaN(maxRoundsFromMs) && specMs >= maxRoundsFromMs) {
+        return {
+          refusal: {
+            code: "workflow-maxrounds-missing",
+            message: `Workflow: "${workflow}" names a run but carries no maxRounds=<n>, and Spec-from: (${record.fields.specFrom}) is on or after MAXROUNDS_FROM (${maxRoundsFrom}); set it to "<run id> maxRounds=<n>" (accept-prep writes this)`,
+          },
+          warning: null,
+        };
+      }
     }
     return { refusal: null, warning: null };
   }
@@ -1326,7 +1349,7 @@ export function checkAcceptance(opts = {}) {
   // workflow (lane 67, build-loop-fed): the same refusal/warning split as scratch above; see
   // checkWorkflowField. opts.workflowFrom moves WORKFLOW_FROM the way opts.scratchFrom moves
   // SCRATCH_FROM.
-  const workflowCheck = checkWorkflowField(record, { workflowFrom: opts.workflowFrom });
+  const workflowCheck = checkWorkflowField(record, { workflowFrom: opts.workflowFrom, maxRoundsFrom: opts.maxRoundsFrom });
   if (workflowCheck.refusal) {
     throw acceptanceError(workflowCheck.refusal.message, workflowCheck.refusal.code);
   }

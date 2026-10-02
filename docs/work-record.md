@@ -127,6 +127,11 @@ time, by `checkAcceptance` and `acceptRecord` (and so by accept-prep's check-acc
   gets a warning only, in the `"warnings":[...]` array.
 - A `Workflow:` value that is a bare `none` with no reason is refused (`workflow-invalid`) at
   any date.
+- A `Workflow:` value that names a run is written `<run id> maxRounds=<n>`, `n` the build loop's
+  round bound actually used (accept-prep sets it from `--max-rounds`, default 3). One without
+  `maxRounds=<n>` is refused (`workflow-maxrounds-missing`) only when `Spec-from:` is parseable and
+  on or after `MAXROUNDS_FROM` (`2026-10-02T03:00:00Z`, `opts.maxRoundsFrom` for tests). `none, <reason>`
+  carries no bound, and an already accepted record is never rewritten or refused for it.
 
 `checkWorkflowField(record, opts)` takes `opts.workflowFrom` the way `checkScratchField` takes
 `opts.scratchFrom`: for tests only, there is no CLI flag to move it. `Workflow:` and `Measure:`
@@ -346,6 +351,7 @@ only attempted when both `gitDir` and `ref` are given.
 | `scratch-invalid` | finding | `Scratch:` is present but not an absolute directory path |
 | `workflow-missing` | refusal (accept), or warning | no `Workflow:` line; a refusal when `Spec-from:` is on/after `WORKFLOW_FROM`, a warning otherwise (see "The `Workflow:` field" above) |
 | `workflow-invalid` | refusal (accept) | `Workflow:` is a bare `none` with no reason |
+| `workflow-maxrounds-missing` | refusal (accept) | `Workflow:` names a run with no `maxRounds=<n>`, `Spec-from:` on/after `MAXROUNDS_FROM` |
 | `artifact-repo-not-absolute` | finding | `Artifact-repo:` is present but not an absolute directory path |
 
 `scope-drift`'s git check can also emit `scope-unresolvable`, level `info` — when

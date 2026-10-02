@@ -2530,3 +2530,34 @@ test("lane 67: every prompt the script renders, state and second-host runners in
     assert.ok(PINNED_PAIRS.some((p) => p.agentType === call.opts.agentType && p.model === call.opts.model), `${call.opts.label} uses a pinned pair`);
   }
 });
+
+// lane 73 (F1): the accept-prep command carries the round bound actually used, so the record's
+// Workflow: line reads `<run id> maxRounds=<n>`.
+async function acceptPrepPromptFor(extraArgs) {
+  const args = { ...BASE_ARGS, territories: [T1], integrationWorktree: "/repo/wt-integrate", integrationBranch: "build/x", recordPath: "docs/work/wr-x.record.md", leadSession: "/home/lead/s.jsonl", ...extraArgs };
+  const stub = makeAgentStub({
+    "build:T1:r1": buildResult("aaaaaaa1"),
+    "review:T1:r1": reviewResult("APPROVE", "aaaaaaa1"),
+    integrate: integrateResult("PASS", "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5"),
+    "accept-prep": {
+      censusPath: null,
+      censusNote: "ok for test",
+      integrationHead: "e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5",
+      evidencePaths: [],
+      checkAcceptance: { exitCode: 1, verdict: "FAIL", output: "no artifact yet" },
+      reportPath: acceptReportPathFor(args),
+    },
+  });
+  await runScript(args, stub);
+  return stub.calls.find((c) => c.opts.label === "accept-prep").prompt;
+}
+
+test("lane 73 F1: accept-prep's command carries --max-rounds with the value the loop used", async () => {
+  const prompt = await acceptPrepPromptFor({ maxRounds: 5 });
+  assert.ok(prompt.includes("--max-rounds 5 --census-out"), "the explicit maxRounds is passed through");
+});
+
+test("lane 73 F1: maxRounds omitted passes the default 3 to accept-prep", async () => {
+  const prompt = await acceptPrepPromptFor({});
+  assert.ok(prompt.includes("--max-rounds 3 --census-out"), "default is 3");
+});
