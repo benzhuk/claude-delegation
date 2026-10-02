@@ -17,6 +17,9 @@ import { execFileSync } from 'node:child_process';
 import { parseDocument, computeExitCode } from './decisions-read.mjs';
 import { withoutRepoLocatingGitEnv } from '../../multi/scripts/transport.mjs';
 import { lintPage, formatViolations } from '../../notion-writing/scripts/page-lint.mjs';
+import {
+  buildCardToggle, buildBearingsToggle, buildComponentsToggle, indentLines,
+} from './decisions-render-sections.mjs';
 
 /** exit 2 from the CLI: a source file breaks a rule this lane enforces before it ever writes. */
 export class RefusedError extends Error {}
@@ -616,19 +619,33 @@ export function render({
     repo, readFile, readdirSync, execGit,
   });
 
+  // Lane 72 page shape (spec scope items 1, 6, 7): every top-level block is a toggle. Three
+  // agent-owned toggles first (Goal card, Bearings, Components), then Waiting on you now holding
+  // the items, What is going on, This session, the comment callout and, as its LAST block, the
+  // Done checkbox; History closes the page.
+  const cardToggle = buildCardToggle({ repo, readFile, execGit });
+  const bearingsToggle = buildBearingsToggle({ repo, readFile, readdirSync });
+  const componentsToggle = buildComponentsToggle({ repo, readFile, execGit });
+
+  const waitingChildren = [
+    waitingBlock,
+    '## What is going on',
+    nowText,
+    session.heading.replace(/^# /, '## '),
+    ...session.body,
+    COMMENT_CALLOUT,
+    doneLine,
+  ].join('\n');
   const lines = [];
-  lines.push('# Waiting on you now');
-  lines.push(waitingBlock);
-  lines.push('# What is going on');
-  lines.push(nowText);
-  lines.push(session.heading);
-  lines.push(...session.body);
+  lines.push(cardToggle);
+  lines.push(bearingsToggle);
+  lines.push(componentsToggle);
+  lines.push('# Waiting on you now {toggle="true"}');
+  lines.push(indentLines(waitingChildren));
+  lines.push('\t<empty-block/>');
   lines.push('# History {toggle="true"}');
   for (const b of historyBullets) lines.push(`\t${b}`);
   lines.push('\t<empty-block/>');
-  lines.push(COMMENT_CALLOUT);
-  lines.push(doneLine);
-  lines.push('<empty-block/>');
   const page = `${lines.join('\n')}\n`;
 
   // Review round-2 F3: render()'s own acceptance rule, enforced — the composed page must itself

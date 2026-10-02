@@ -20,6 +20,7 @@ import {
   run, defaultReadPageWithCli, defaultReplaceMdWithCli,
 } from './decisions-render.mjs';
 import { PAGE_LINT_SKIP } from './decisions-render-core.mjs';
+import { toggleFiles, withTogglesGit } from './toggles-fixtures.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const SCRIPT_PATH = path.join(HERE, 'decisions-render.mjs');
@@ -80,6 +81,7 @@ function p(...parts) {
 /** A minimal, valid repo fixture: empty Waiting, a compliant now.md/session.md, two history days. */
 function baseFiles(overrides = {}) {
   const files = {
+    ...toggleFiles(path.join, REPO),
     [p('docs', 'decisions', 'now.md')]: 'The plugin runs the loop by itself. Ticks reach the right session within a minute. Knowledge sharing between machines is the next lane.',
     [p('docs', 'decisions', 'session.md')]: 'since: 2026-09-27T18:16:00Z\n- The collector runs on Netcup every 15 minutes.\n- Release 0.20.15 is installed on three hosts.',
     [p('docs', 'decisions', 'history', '2026-09-27.md')]: '# Sep 27, 2026\nSummary: five lanes merged, the delete guard shipped, and a second RE-PLAN reached your page.\n- some bullet\n',
@@ -93,7 +95,7 @@ function renderDeps(overrides = {}, untracked = []) {
   const f = fakeFs(baseFiles(overrides));
   return {
     deps: {
-      readFile: f.readFile, readdirSync: f.readdirSync, execGit: fakeGit(untracked),
+      readFile: f.readFile, readdirSync: f.readdirSync, execGit: withTogglesGit(fakeGit(untracked)),
     },
     fs: f,
   };
@@ -669,21 +671,21 @@ test('checkWaitingItem: a stray owner comment (escaped \\*\\*) inside the item i
 test('render: Waiting is "Nothing right now." with an empty waiting/ directory', () => {
   const { deps } = renderDeps();
   const page = render({ repo: REPO }, deps);
-  assert.match(page, /^# Waiting on you now\nNothing right now\.\n/);
+  assert.match(page, /\n# Waiting on you now \{toggle="true"\}\n\tNothing right now\.\n/);
 });
 
 test('render: What is going on carries now.md verbatim', () => {
   const { deps } = renderDeps();
   const page = render({ repo: REPO }, deps);
-  assert.match(page, /# What is going on\nThe plugin runs the loop by itself\./);
+  assert.match(page, /\n\t## What is going on\n\tThe plugin runs the loop by itself\./);
 });
 
 test('render: This session heading converts since: to NY wall time, and carries every bullet', () => {
   const { deps } = renderDeps();
   const page = render({ repo: REPO }, deps);
-  assert.match(page, /# This session \(since your tick at Sun 2:16 PM\)/);
-  assert.match(page, /- The collector runs on Netcup every 15 minutes\./);
-  assert.match(page, /- Release 0\.20\.15 is installed on three hosts\./);
+  assert.match(page, /\t## This session \(since your tick at Sun 2:16 PM\)/);
+  assert.match(page, /\t- The collector runs on Netcup every 15 minutes\./);
+  assert.match(page, /\t- Release 0\.20\.15 is installed on three hosts\./);
 });
 
 test('render: History ordering is newest-first, and the link shape matches the live page', () => {
@@ -707,32 +709,34 @@ test('render: one bullet per archive file, after the history bullets', () => {
   assert.match(page, /\t- Everything before today's rewrite is kept, byte for byte, in the \[Sep 27 archive\]/);
 });
 
-test('render: History toggle closes with an indented <empty-block\\/>, then the callout, the Done line, the trailing <empty-block\\/>', () => {
+test('render: the Waiting toggle ends callout, Done checkbox, indented <empty-block\/>; History is the last top-level toggle', () => {
   const { deps } = renderDeps();
   const page = render({ repo: REPO }, deps);
   const lines = page.split('\n');
+  const waitingIdx = lines.indexOf('# Waiting on you now {toggle="true"}');
   const historyIdx = lines.indexOf('# History {toggle="true"}');
-  assert.ok(historyIdx > -1);
-  const emptyBlockIdx = lines.indexOf('\t<empty-block/>');
-  assert.ok(emptyBlockIdx > historyIdx);
-  assert.equal(lines[emptyBlockIdx + 1], '<callout icon="✅">');
-  assert.equal(lines[lines.length - 2], '<empty-block/>');
+  assert.ok(waitingIdx > -1 && historyIdx > waitingIdx);
+  assert.equal(lines[historyIdx - 1], '\t<empty-block/>');
+  assert.equal(lines[historyIdx - 2], '\t- [ ] Done');
+  assert.equal(lines[historyIdx - 3], '\t</callout>');
+  assert.equal(lines[lines.length - 2], '\t<empty-block/>');
   assert.equal(lines[lines.length - 1], '');
+  assert.ok(!lines.includes('<empty-block/>'), 'no column-0 empty block: every top-level block is a toggle');
 });
 
 test('render: default Done line is unticked; --done-line is carried verbatim', () => {
   const { deps } = renderDeps();
   const page1 = render({ repo: REPO }, deps);
-  assert.match(page1, /\n- \[ \] Done\n<empty-block\/>\n$/);
+  assert.match(page1, /\n\t- \[ \] Done\n\t<empty-block\/>\n# History/);
   const page2 = render({ repo: REPO, doneLine: '- [ ] Done (last cleared: Sep 27, 2026, 2:16 PM America/New_York)' }, deps);
-  assert.match(page2, /- \[ \] Done \(last cleared: Sep 27, 2026, 2:16 PM America\/New_York\)/);
+  assert.match(page2, /\t- \[ \] Done \(last cleared: Sep 27, 2026, 2:16 PM America\/New_York\)/);
 });
 
-test('render: waiting items are included in file order between the two headings', () => {
+test('render: waiting items are indented inside the Waiting toggle, in file order', () => {
   const item = GOOD_ITEM;
   const { deps } = renderDeps({ [p('docs', 'decisions', 'waiting', 'a-item.md')]: item });
   const page = render({ repo: REPO }, deps);
-  assert.match(page, /# Waiting on you now\n<details>/);
+  assert.match(page, /# Waiting on you now \{toggle="true"\}\n\t<details>\n\t<summary>/);
   assert.doesNotMatch(page, /Nothing right now\./);
 });
 
@@ -843,11 +847,11 @@ test('acceptance: render output parses clean through decisions-read.mjs', () => 
   assert.equal(doc.warnings.length, 0, `expected zero warnings, got: ${JSON.stringify(doc.warnings)}`);
   assert.equal(doc.done, false);
   const lines = page.split('\n');
-  const doneIdx = lines.findIndex((l) => /^- \[ \] Done/.test(l));
+  const doneIdx = lines.findIndex((l) => /^\t- \[ \] Done/.test(l));
   assert.ok(doneIdx > -1);
-  for (const rest of lines.slice(doneIdx + 1)) {
-    assert.ok(rest.trim() === '' || rest.trim() === '<empty-block/>', `unexpected content after Done: ${JSON.stringify(rest)}`);
-  }
+  // Done is the last block of the Waiting toggle: only its empty block follows before History.
+  assert.equal(lines[doneIdx + 1], '\t<empty-block/>');
+  assert.equal(lines[doneIdx + 2], '# History {toggle="true"}');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -916,7 +920,7 @@ test('CLI run(): render dispatch prints the page and exits 0', async () => {
   const out = [];
   const code = await run({ argv: ['render', '--repo', REPO], write: (s) => out.push(s), deps });
   assert.equal(code, 0);
-  assert.match(out.join(''), /^# Waiting on you now/);
+  assert.match(out.join(''), /^# Goal card \{toggle="true"\}/);
 });
 
 test('CLI run(): render dispatch surfaces a RefusedError as exit 2', async () => {
