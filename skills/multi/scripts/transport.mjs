@@ -826,7 +826,41 @@ export function notesDir(home) { return toPosix(path.posix.join(toPosix(home), '
 export function ledgerPath(repo, ymd) { return toPosix(path.posix.join(toPosix(repo), 'docs/ledger', `${ymd}.md`)); }
 export function ledgerDir(repo) { return toPosix(path.posix.join(toPosix(repo), 'docs/ledger')); }
 export function notesMirrorPath(home, ymd) { return toPosix(path.posix.join(notesDir(home), `${ymd}.md`)); }
-export function packetPathFor(repo, id) { return toPosix(path.posix.join(toPosix(repo), 'docs/notes', `${id}.md`)); }
+/**
+ * Lane 74 item 5: a plugin-written packet never lands untracked in a checkout. It lives under the
+ * recipient host's `~/.agents/notes/packets/<repo-name>/<id>.md`, and the envelope's Details names it
+ * as `.agents/notes/packets/<repo-name>/<id>.md`: repo-relative in shape (validateDetails and its
+ * charset accept it), resolved against the reader's HOME instead of a repo. `docs/notes/...` Details
+ * written before this keep resolving against the repo, exactly as before.
+ */
+export const PACKET_DETAILS_PREFIX = '.agents/notes/packets/';
+/** The repo's name for packet and pointer paths: the last segment of its path, reduced to the Details charset. */
+export function repoName(repo) {
+  const seg = toPosix(String(repo ?? '')).split('/').filter(Boolean).pop() ?? '';
+  const name = seg.replace(/[^A-Za-z0-9._-]/g, '-').replace(/^[.]+/, '');
+  return name || 'repo';
+}
+/** The Details string for a packet `id` of `repo` (always valid for validateDetails). */
+export function packetDetailsFor(repo, id) { return `${PACKET_DETAILS_PREFIX}${repoName(repo)}/${id}.md`; }
+/**
+ * Where a Details string resolves on THIS host: `.agents/notes/packets/...` against `home`, anything
+ * else against `repo` (the legacy `docs/notes/...` form). Returns null for a Details that cannot be
+ * placed (no repo for a repo-relative one).
+ */
+export function resolveDetailsPath(details, { home, repo } = {}) {
+  const d = String(details ?? '');
+  if (!d) return null;
+  if (d.startsWith(PACKET_DETAILS_PREFIX)) return home ? toPosix(path.posix.join(toPosix(home), d)) : null;
+  return repo ? toPosix(path.posix.join(toPosix(repo), d)) : null;
+}
+/**
+ * The packet file for `id`. With `home` it is the out-of-checkout location above; without it, the
+ * legacy `<repo>/docs/notes/<id>.md` (kept only so an old caller or fixture still resolves).
+ */
+export function packetPathFor(repo, id, home) {
+  if (home) return toPosix(path.posix.join(toPosix(home), packetDetailsFor(repo, id)));
+  return toPosix(path.posix.join(toPosix(repo), 'docs/notes', `${id}.md`));
+}
 export function outboxDir(home) { return toPosix(path.posix.join(notesDir(home), 'outbox')); }
 export function outboxPath(home, id) { return toPosix(path.posix.join(outboxDir(home), `${id}.json`)); }
 /** Spec V2 names this file exactly: `~/.agents/notes/.cursor-<slug>`. It holds JSON. */
