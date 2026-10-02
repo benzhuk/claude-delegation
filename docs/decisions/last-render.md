@@ -1,22 +1,5 @@
 # Waiting on you now
-<details>
-<summary>**Goal card v6: bring back your components**</summary>
-	You asked for better goal cards and where your component plan went. Card v5 (9/24) has GOAL, NOT, DONE, STOP and four measures. The 9/28 component map and your ruling that every component gets a lane were dropped when the 9/30 plan was organized by measure. Whatever you tick, the lead drafts v6 and puts the diff here before it replaces v5.
-	- [ ] `docs/GOALS.md` gains COMPONENTS, one line each: what it does for the goal, its measure, its state word, refreshed by script at every release and shown in the Components toggle. The hook card adds one line naming them, and each measure line shows its value against the hand-run bar (recommended)
-	- [ ] Components only in `docs/components.md`, card unchanged
-	- [ ] You rewrite the card, the lead drafts v6 from your bullets
-	No default: the card is your goal statement
-	<empty-block/>
-</details>
-<details>
-<summary>**Report states to replace PARTIAL**</summary>
-	You said PARTIAL is not a good state. Runner reports today used DONE, PARTIAL, FAILED, and PARTIAL hides who is waited on. The report check in `docs/subagent-contract.md` would refuse any other first word.
-	- [ ] First line is DONE, NEEDS BEN: one line, NEEDS a peer: one line, or FAILED: why, ending with n of m steps done. Lane record Status uses the same words plus accepted and closed (recommended)
-	- [ ] Keep DONE, PARTIAL, FAILED but PARTIAL must name the blocker and who is next
-	- [ ] Something else, you say what
-	Default after 2026-10-03 12:00 -04:00: the first option
-	<empty-block/>
-</details>
+Nothing right now.
 # What is going on
 The plugin now runs the whole loop by itself: a lane goes from spec to main in one to three hours with Sonnet building and Opus reviewing, and today two lanes were led from Codex end to end, which the goal's finish line requires. Your page and the Goals page are rendered from repo files and can no longer drift. The cost still out of line is mine, and tomorrow morning's bearings check it against a 40M budget; the other open failure is stalls, two today of 3.5 and 5.3 hours, which tonight's lanes attack. Knowledge sharing between machines still does nothing and is next.
 # This session (since your tick at Thu 5:20 PM)
@@ -25,8 +8,9 @@ The plugin now runs the whole loop by itself: a lane goes from spec to main in o
 - 67 makes the build loop the only build route; every record now names its run.
 - Lane 68 part one merged 5:58 PM: a stale-plugin warning per pane, and inboxes register only from the main session.
 - Your B landed as lane 68b at 8:30 PM; the guard narrowing becomes lane 70 when you lift the guard for one run.
-- Two lanes merged before accept by a lead script slip; accept passed right after; merges now refuse an unaccepted record.
-- Knowledge triage is stopped on Windows until you clear its ATTENTION; steps in the item above.
+- In progress, goal card v6 (you ticked A). Now: lead drafting v6 from the component analysis \| To finish: diff on this page, you tick, v5 replaced \| Est: tonight for the diff
+- In progress, report states (your answer). Now: lane 73 opened for the states and three fields \| To finish: contract, records, renderer \| Est: on main by 10/2 3:00 PM
+- Running: lanes 71, 62 recovery, 72 and 73. Lane 72 brings the page-shape rule and the card, bearings and components toggles.
 # History {toggle="true"}
 	- [Oct 1](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-10-01.md) — Ben ended the pause; the lead is now the pane skills-f, and lanes 62, 64, 65 and 66 were dispatched.
 	- [Sep 30](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-30.md) — Daily knowledge triage is accepted with a repaired census and a live proof that archived all60 selected notes; scheduled installation follows the next release.
@@ -45,5 +29,5 @@ The plugin now runs the whole loop by itself: a lane goes from spec to main in o
 <callout icon="✅">
 	To comment, start a line with `**` anywhere on this page, then tick Done to submit; the answer appears here and the exchange is kept in that day's history file.
 </callout>
-- [ ] Done (last cleared: Oct 1, 2026, 5:20 PM America/New_York)
+- [ ] Done (last cleared: Oct 1, 2026, 8:51 PM America/New_York)
 <empty-block/>

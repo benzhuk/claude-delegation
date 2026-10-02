@@ -1,4 +1,4 @@
-since: 2026-10-01T21:20:41.260Z
+since: 2026-10-02T00:46:12.401Z
 - Five lanes merged today, each Opus-approved with the full suite green on Netcup and Hetzner: 66, 64, 64b, 65 and 67.
 - 64 and 64b unwedged this page and closed round 3; 65 enforces the .claude/worktrees folder; 66 landed the fresh-host install docs.
 - 67 makes the build loop the only build route; every record now names its run.
