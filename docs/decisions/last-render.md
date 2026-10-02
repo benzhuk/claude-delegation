@@ -74,6 +74,16 @@
 		<empty-block/>
 	</details>
 	<details>
+	<summary>**Lane 62: let six regression tests through the secret guard once**</summary>
+		Now: source fixes reviewed, suites running \| To finish: tests land, one review, accept, merge \| Est: 2 h after your word
+		The census fixes for lane 62 are built, but the secret guard refused the test file that proves them, a false match on synthetic test text. No agent may route around it, so the 9 AM target is missed. Lane 70 records the refused text for the guard fix.
+		- [ ] Edit exception: the same scoped exception you gave lane 68b, for `scripts/census-completeness-62.test.mjs` only, one builder round
+		- [ ] One-run lift: in `~/.claude/settings.json` you disable the two `secret-guard.sh` hook entries, tell skills-o, it lands the tests, then you restore the entries
+		- [ ] Hold: lane 62 waits for the guard fix in lane 70
+		No default: a guard change takes your word
+		<empty-block/>
+	</details>
+	<details>
 	<summary>**Janitor policy, one tick**</summary>
 		Now: lane 74 builds the classes in report mode \| To finish: you tick, the classes act \| Est: default fires 10/3 noon
 		You asked whether the janitor stops the 9/30 mess from recurring. It does not yet. Lane 74 builds the classes below; they act only after this tick and until then report what they would do. Roots: every git repo under `~/Code`, `<repo>/.claude/worktrees`, the session Temp scratch root, `orca/workspaces`, `/var/tmp/lane-*`. Never BTO, never dotfiles.
@@ -132,6 +142,7 @@
 	- [ ] Done (last cleared: Oct 1, 2026, 8:51 PM America/New_York)
 	<empty-block/>
 # History {toggle="true"}
+	- [Oct 2](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-10-02.md) — lane 74 merged to main, and lane 62 went NEEDS BEN on the secret guard.
 	- [Oct 1](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-10-01.md) — Ben ended the pause; the lead is now the pane skills-f, and lanes 62, 64, 65 and 66 were dispatched.
 	- [Sep 30](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-30.md) — Daily knowledge triage is accepted with a repaired census and a live proof that archived all60 selected notes; scheduled installation follows the next release.
 	- [Sep 29](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-29.md) — Lane56 made Codex advisory-route tests deterministic while retaining real-clock deadline coverage, and Lane55 restored COUNTED historical Codex token and lead-turn rows.
