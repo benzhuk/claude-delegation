@@ -6,4 +6,4 @@ since: 2026-10-02T00:46:12.401Z
 - In progress, report states (your answer). Now: lane 73 opened for the states and three fields | To finish: contract, records, renderer | Est: on main by 10/2 3:00 PM
 - Running: lanes 71, 62 recovery, 72 and 73. Lane 72 brings the page-shape rule and the card, bearings and components toggles.
 - [Component analysis](https://github.com/benzhuk/claude-delegation/blob/main/docs/work/evidence/2026-10-01-component-analysis.md): four islands, ten unowned mess classes, nine items to plan.
-- [Janitor evaluation](https://github.com/benzhuk/claude-delegation/blob/main/docs/work/evidence/2026-10-01-cleanup-vs-janitor.md): it removes one class and nothing since scheduled. Lane 74 fixes that.
+- [Janitor evaluation](https://github.com/benzhuk/claude-delegation/blob/main/docs/work/evidence/2026-10-01-cleanup-vs-janitor.md): one class, nothing removed yet; lane 74 fixes it.
