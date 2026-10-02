@@ -787,6 +787,47 @@ test('publish: a readback that does not match the render is exit 5', async () =>
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Step 6 (lane 72b): Notion rewrites a `www.notion.so/<id>` link to `app.notion.com/p/<id>` on write
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Simulates notion.js as the live page behaved after lane 72: the first `readPage` returns
+ * `freshPage`; every later read returns what `replaceMd` last received WITH Notion's own link
+ * rewrite applied (not the text verbatim). `mutate` lets a test change one more line. */
+function wireRewritingNotion(freshPage, mutate = (t) => t) {
+  let written = freshPage;
+  let reads = 0;
+  const rewrite = (md) => mutate(md.replace(/https:\/\/(?:www\.)?notion\.so\/([0-9a-f]{32})/g, 'https://app.notion.com/p/$1'));
+  return {
+    readPage: async () => { reads += 1; return reads === 1 ? freshPage : rewrite(written); },
+    replaceMd: async (_page, md) => { written = md; },
+    writtenText: () => written,
+  };
+}
+
+test('publish (lane 72b): a page carrying the Goals page link reads back through the Notion link rewrite and is exit 0', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const notion = wireRewritingNotion(PAGE_NO_INPUT);
+  const { deps, fsMap } = baseDeps({ files, readPage: notion.readPage, replaceMd: notion.replaceMd });
+  const result = await publish({ repo: REPO, page: 'PAGE' }, deps);
+  assert.equal(result.code, 0);
+  const written = notion.writtenText();
+  assert.match(written, /\[Goals page\]\(https:\/\/[^)]+\/3e3da11277a1813cb326c42ed97a1d5d\)/, 'the Bearings toggle carries the Goals page link');
+  assert.equal(fsMap.get(p('docs', 'decisions', 'last-render.md')), written, 'last-render.md is the text that was written');
+});
+
+test('publish (lane 72b): the same rewriting Notion with ONE genuinely different content line is still exit 5', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const notion = wireRewritingNotion(PAGE_NO_INPUT, (t) => t.replace('Netcup every 15 minutes', 'Netcup every 16 minutes'));
+  const { deps, fsMap } = baseDeps({ files, readPage: notion.readPage, replaceMd: notion.replaceMd });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE' }, deps),
+    (e) => e instanceof PublishError && e.code === 5,
+  );
+  assert.match(notion.writtenText(), /Netcup every 15 minutes/, 'the planted difference is in the readback, not the render');
+  assert.equal(fsMap.get(p('docs', 'decisions', 'last-render.md')), PAGE_NO_INPUT, 'last-render.md is not advanced on a readback failure');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // --clear-done: since: set only by --clear-done, verbatim history check, mismatch naming
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -19,7 +19,9 @@ import {
 import { computeSha } from './goals-mirror.mjs';
 
 export const GOALS_PAGE_ID = '3e3da11277a1813cb326c42ed97a1d5d';
-export const GOALS_PAGE_URL = `https://www.notion.so/${GOALS_PAGE_ID}`;
+// The form Notion itself returns: it rewrites a `notion.so/<id>` link to this on write, and the
+// publish readback compares the render to the read-back text strictly (lane 72b).
+export const GOALS_PAGE_URL = `https://app.notion.com/p/${GOALS_PAGE_ID}`;
 export const COMPONENT_STATES = ['fed', 'measured', 'unfed', 'partial', 'missing'];
 const BEARINGS_VERDICTS = ['CONTINUE', 'RE-PLAN', 'CUT'];
 const EVIDENCE_REL = ['docs', 'work', 'evidence'];
