@@ -51,58 +51,42 @@
 	<empty-block/>
 # Waiting on you now {toggle="true"}
 	<details>
-	<summary>**Adopt problem-led bets**</summary>
-		Now: method ruling written, waiting on your word \| To finish: you tick, first planning turn runs \| Est: page by 4:00 PM if you adopt today
-		You said every agent-built system became a patch pile because you deferred decisions to Fable and made only local ones. Seven research lanes and an Opus [synthesis](https://github.com/benzhuk/claude-delegation/blob/main/docs/work/evidence/2026-10-02-method-synthesis.md) propose one method, and the lead's [ruling](https://github.com/benzhuk/claude-delegation/blob/main/docs/work/evidence/2026-10-02-method-ruling.md) adopts it with four amendments. In one paragraph: you own a one-page `PROBLEM.md` in your words; every observed failure goes in a misfit log and is grouped into classes; work happens in bets with a fixed appetite you set; at the end of every bet a fresh judge who has not seen the architecture writes a blank-page design from the problem alone, the lead writes the continue design, and you pick between the two at the problem level; the rule "change only what moves a measure" is retired; nothing is built as code until a misfit shows it is needed; the harness itself may be deleted if a blank-page design says so. Five items that were on this page are withdrawn as plan-level decisions that were never yours to make.
-		- [ ] Adopt, and run the first planning turn today (page with the problem draft and two designs by 4:00 PM) (recommended)
-		- [ ] Adopt, but I want to read the synthesis first, run nothing today
-		- [ ] Not this, comment below
-		No default: this is the aim.
-		Sub-questions, tick any you want to decide now, otherwise the recommended answer applies:
-		- [ ] First `PROBLEM.md`: lead drafts from my 10/2 words, I edit (recommended)
-		- [ ] First `PROBLEM.md`: I write it myself
-		- [ ] Scope: my general pattern with agents, this harness as the first instance (recommended)
-		- [ ] Scope: this harness only
-		- [ ] Blank-page designer: alternate Codex and a fresh Claude, Codex first (recommended)
-		- [ ] Blank-page designer: fresh Claude only
-		- [ ] In-flight lanes: freeze, nothing new starts, 62 stays on the guard item (recommended)
-		- [ ] In-flight lanes: finish 62 first
+	<summary>**Adopt the revised method**</summary>
+		Now: revised after your two objections, waiting on your word \| To finish: you decide go or no-go and appetite, the first bet runs \| Est: two working days if you go
+		Revised 10/2 after your two objections. Both were right and the research agrees with you: no engineering source has an outsider write the new design, and no owner-facing practice asks the owner to choose between architectures. Links: [revision](https://github.com/benzhuk/claude-delegation/blob/main/docs/work/evidence/2026-10-02-method-revision.md); deeper reports [alternatives](https://github.com/benzhuk/claude-delegation/blob/main/docs/work/evidence/2026-10-02-research2-alternatives.md), [owner decision](https://github.com/benzhuk/claude-delegation/blob/main/docs/work/evidence/2026-10-02-research2-owner-decision.md), [who redesigns](https://github.com/benzhuk/claude-delegation/blob/main/docs/work/evidence/2026-10-02-research2-who-redesigns.md).
+		Problem, in your words: Every complex system built with agents became a pile of patches that never solved the problem. You deferred decisions to Fable, asked for orchestration, and made only the local decisions you were asked. You want to rethink at every planning turn and throw out the architecture for a simpler one without the class of problem, using the learnings from the complexity. Nobody held the problem when you deferred.
+		Recommendation: Adopt the revised method and run the first bet, appetite two working days, output one pitch page for the harness and no code. You own a one-page `PROBLEM.md` and the wording of a list of failures you have seen. The lead, who knows the system and its failure history, writes two designs every planning turn, a continue design and a simplest-core design, and recommends one with trade-offs. A Codex reviewer who has read the code argues against it on three checks: wrong problem, added parts no failure demanded, removed parts with no failure named. You read one page with toggles like this one and decide go, no-go and appetite. You never pick a design. A bet stops at its appetite. You judge it on which listed failures stopped.
+		Path A, the revised method (recommended): Ends the two classes behind the patch pile: decisions made inside the plan, and no one holding the problem. Costs: four markdown files, one planning turn per bet, a Codex review per turn, nothing built as code. Removes: the goal card as driver, the four-measure rule, bearings as a separate role, the pickup, the census as a decision input. Risks: the lead's own rethink may over-reach (Brooks's second system) and the reviewer is the only brake; a different-model reviewer is untested. Will not do: automate the planning turn.
+		Path B, keep the current plan: Card v5, lanes, census, bearings. Ends nothing that caused the pile; twelve lanes on 10/1 moved measures and removed no part. Costs nothing new. Risk: the pattern you described continues.
+		Path C, lead decides alone, you judge outcomes only: Same as A but no pitch page; you see only the finished bet and its failure list. Cheapest for you. Risk: the one decision the sources all give the owner, appetite and go or no-go, is gone, and the lead's turns again want to end in a merge.
+		Reviewer's objections: None yet, this item was written by the lead alone. The first bet's page will carry Codex's objections unedited.
+		- [ ] Go, Path A, appetite two working days (recommended)
+		- [ ] Go, Path A, different appetite, write it in a comment
+		- [ ] Path C
+		- [ ] No-go, comment below
+		No default.
 		<empty-block/>
 	</details>
 	<details>
-	<summary>**Lane 62: let six regression tests through the secret guard once**</summary>
-		Now: source fixes reviewed, suites running \| To finish: tests land, one review, accept, merge \| Est: 2 h after your word
-		The census fixes for lane 62 are built, but the secret guard refused the test file that proves them, a false match on synthetic test text. No agent may route around it, so the 9 AM target is missed. Lane 70 records the refused text for the guard fix. Separately, a builder broke its brief: refused by the guard, it made the same 8-line env-sealing edit with the Edit tool. It is kept as unapproved evidence and used for no gate; your pick below also decides it.
-		- [ ] Edit exception: the same scoped exception you gave lane 68b, for `scripts/census-completeness-62.test.mjs` only, one builder round, and that edit is redone through that exception
-		- [ ] One-run lift: in `~/.claude/settings.json` you disable the two `secret-guard.sh` hook entries, tell skills-o, it lands the tests, then you restore the entries, and that edit is redone in that run
-		- [ ] Hold: lane 62 waits for the guard fix in lane 70
-		No default: a guard change takes your word
-		<empty-block/>
-	</details>
-	<details>
-	<summary>**Janitor policy, one tick**</summary>
-		Now: lane 74 builds the classes in report mode \| To finish: you tick, the classes act \| Est: default fires 10/3 noon
-		No action needed from you today, the new classes stay report-only.
-		You asked whether the janitor stops the 9/30 mess from recurring. It does not yet. Lane 74 builds the classes below; they act only after this tick and until then report what they would do. Roots: every git repo under `~/Code`, `<repo>/.claude/worktrees`, the session Temp scratch root, `orca/workspaces`, `/var/tmp/lane-*`. Never BTO, never dotfiles.
-		- [ ] Dirty worktree with no open record, idle 24 h: commit all of it to archive/\<name\>, push, remove the worktree (recommended)
-		- [ ] Unmerged local-only branch with no open record, idle 24 h: push as archive/\<name\>, delete it locally, and remove the clean worktree that holds it (recommended)
-		- [ ] Merged origin branches: delete daily (recommended)
-		- [ ] Deregistered worktree folders under the roots: archive if they hold changes, then remove (recommended)
-		- [ ] Untracked files older than 7 days in a durable checkout: report by path only, never remove (recommended)
-		- [ ] Not yet, keep report-only
-		Default after 2026-10-03 12:00 -04:00: the five recommended lines
+	<summary>**Lift the secret guard for one run (lane 70)**</summary>
+		Now: lane 70 and lane 62 parked \| To finish: you pick, lane 70 edits the guard pattern, lane 62 lands its tests \| Est: lane 70 half a day after your word
+		Your Hold tick on the guard item says fix the guard first in lane 70. Lane 70 cannot edit the guard's own pattern while the guard is on, which is why it stalled on 10/1: the guard refused the builder's edits to itself. Lane 62 waits behind it.
+		- [ ] Lift the secret guard for one supervised run of lane 70 on this host, builder reports the diff before merge (recommended)
+		- [ ] I will edit the guard pattern myself, send me the proposed change
+		- [ ] Leave both lanes parked
+		Default after 2026-10-03 12:00 -04:00: none, both lanes stay parked
 		<empty-block/>
 	</details>
 	## What is going on
 	The plugin now runs the whole loop by itself: a lane goes from spec to main in one to three hours with Sonnet building and Opus reviewing, and today two lanes were led from Codex end to end, which the goal's finish line requires. Your page and the Goals page are rendered from repo files and can no longer drift. The cost still out of line is mine, and tomorrow morning's bearings check it against a 40M budget; the other open failure is stalls, two today of 3.5 and 5.3 hours, which tonight's lanes attack. Knowledge sharing between machines still does nothing and is next.
-	## This session (since your tick at Fri 10:50 AM)
-	- Research and synthesis done: seven research lanes and an Opus synthesis on how you and the agents should decide.
-	- Method ruling written: adopt problem-led bets with four amendments, first item under Waiting.
-	- The lead withdrew five of its own items as plan-level decisions; no new lane starts until you tick, lane 62 stays on the guard item.
+	## This session (since your tick at Fri 3:15 PM)
+	- Your two objections checked against the research and upheld; the blank-page designer is retracted.
+	- The revised method is on this page in the new pitch format, first under Waiting.
+	- Janitor 0.20.20 install in progress on all four machines, your five classes on.
 	<callout icon="✅">
 		To comment, start a line with `**` anywhere on this page, then tick Done to submit; the answer appears here and the exchange is kept in that day's history file.
 	</callout>
-	- [ ] Done (last cleared: Oct 1, 2026, 8:51 PM America/New_York)
+	- [ ] Done (last cleared: Oct 2, 2026, 5:40 PM America/New_York)
 	<empty-block/>
 # History {toggle="true"}
 	- [Oct 2](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-10-02.md) — lane 74 merged to main, and lane 62 went NEEDS BEN on the secret guard.
