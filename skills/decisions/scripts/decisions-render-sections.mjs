@@ -128,14 +128,14 @@ function bearingsDecision(aLines) {
   if (lead && BEARINGS_VERDICTS.includes(verdictWord(lead[1]))) return verdictWord(lead[1]);
   for (const l of aLines) {
     const m = /^\s*(?:[-*]\s+|#{1,3}\s+)?(?:\*\*)?Decision:(?:\*\*)?\s*(.+)$/.exec(l);
-    if (m && BEARINGS_VERDICTS.includes(verdictWord(m[1]))) return verdictWord(m[1]);
+    if (m && !m[1].includes('|') && BEARINGS_VERDICTS.includes(verdictWord(m[1]))) return verdictWord(m[1]);
   }
   return null;
 }
 
 /** A prediction field that only points elsewhere carries no prediction. */
 function isPointer(text) {
-  return /^see\b.{0,60}$/i.test(text.trim());
+  return /^see\b.{0,60}$/i.test(text.trim()) || /^\[[^\]]*\]$/.test(text.trim());
 }
 
 export function parseBearings(assessmentText, responseText, date) {

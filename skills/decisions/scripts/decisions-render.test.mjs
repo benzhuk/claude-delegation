@@ -1141,6 +1141,12 @@ test('Bearings toggle: a missing field refuses (exit 2) naming it, a missing fil
   assert.throws(() => render({ repo: REPO }, none.deps), (e) => e instanceof RefusedError && /bearings-assessment/.test(e.message));
 });
 
+test('Bearings toggle: an unfilled template line is not a value (Decision with alternatives, bracketed Prediction)', async () => {
+  const { parseBearings } = await import('./decisions-render-sections.mjs');
+  assert.throws(() => parseBearings('# Bearings\n- Decision: `CONTINUE` | `RE-PLAN` | `CUT`\n- Next action: x.\n- Prediction: y happens.\n', '', 'd'), (e) => e instanceof RefusedError && /no decision/.test(e.message));
+  assert.throws(() => parseBearings('# Bearings\n- Decision: `CUT`\n- Next action: x.\n- Prediction: [observable result and when it will be checked]\n', '', 'd'), (e) => e instanceof RefusedError && /Prediction/.test(e.message));
+});
+
 test('Bearings toggle: a pair shaped like the bearings skill template parses (line 1 heading, "- Decision:" and "- Prediction:" lines)', async () => {
   const { parseBearings } = await import('./decisions-render-sections.mjs');
   const A = [

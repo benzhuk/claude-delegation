@@ -285,6 +285,17 @@ const decisionsPage = (waiting = waitingItem(), decided = decidedItem()) => doc(
   '# Decided {toggle="true"}', ...decided, `${T}<empty-block/>`,
 );
 
+test('decisions page: the hand-written shape notion-writing section 7 describes is clean (Goals and How to read toggles, Waiting on you now, Done last inside it)', () => {
+  const sec = (name) => [`# ${name} {toggle="true"}`, `${T}- a line`, `${T}<empty-block/>`];
+  const page = doc(
+    ...sec('🎯 Goals'), ...sec('How to read'),
+    '# Waiting on you now {toggle="true"}', ...waitingItem().map((l) => (l === '' ? l : `${T}${l}`)), `${T}- [ ] Done`, `${T}<empty-block/>`,
+    '# Decided {toggle="true"}', ...decidedItem(), `${T}<empty-block/>`,
+    ...sec('Parked'), ...sec('Closed without a decision'), ...sec('Information only'), ...sec('Standing asks not yet done'),
+  );
+  assert.deepEqual(lintPage(page, { kind: 'decisions' }), []);
+});
+
 test('decisions page: the packet block, complete, is clean under every decisions rule', () => {
   assert.deepEqual(lintPage(decisionsPage(), { kind: 'decisions' }), []);
 });
