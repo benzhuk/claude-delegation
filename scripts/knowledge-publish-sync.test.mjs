@@ -44,9 +44,15 @@ for (const n of fs.readdirSync(cfg.inbox).filter((x) => x.endsWith('.md'))) {
   added += '2026-09-29 · ' + n.slice(0, -3) + ' → merged:fixture.md\\n';
 }
 fs.appendFileSync(cfg.storeDigest, added);
-fs.appendFileSync(cfg.sourceDigest, added);
-git(cfg.repo, 'add', cfg.digestRel);
+if (!cfg.skipSourceDigest) fs.appendFileSync(cfg.sourceDigest, added);
+if (cfg.commitFile) fs.appendFileSync(path.join(cfg.repo, cfg.commitFile), added);
+git(cfg.repo, 'add', cfg.commitFile ?? cfg.digestRel);
 git(cfg.repo, 'commit', '-q', '-m', 'triage: archive notes');
+for (let i = 1; i < (cfg.commits ?? 1); i++) {
+  fs.appendFileSync(path.join(cfg.repo, 'topics', 'base.md'), 'extra ' + i + '\\n');
+  git(cfg.repo, 'add', 'topics/base.md');
+  git(cfg.repo, 'commit', '-q', '-m', 'triage: extra ' + i);
+}
 if (cfg.race) {
   const file = path.join(cfg.other, cfg.race.file);
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -117,7 +123,7 @@ function makeHarness() {
   const cfg = {
     gitConfigGlobal: env.GIT_CONFIG_GLOBAL, home, repo, other, origin, inbox: inboxDir, digestRel: DIGEST_REL,
     storeDigest: path.join(inboxDir, '_archive', 'DIGEST.md'), sourceDigest: path.join(repo, DIGEST_REL),
-    startHead, pushStatus, lock, race: null, rejectHook: false,
+    startHead, pushStatus, lock, race: null, rejectHook: false, skipSourceDigest: false, commitFile: null, commits: 1,
   };
   const writeCfg = () => fs.writeFileSync(cfgPath, JSON.stringify(cfg));
   writeCfg();
@@ -325,7 +331,7 @@ test('rebase conflict: the same DIGEST tail edited on both sides; rebase is abor
   assert.notEqual(h.g(h.repo, 'rev-parse', 'HEAD'), h.originHead());
   assert.equal(h.g(h.origin, 'log', '-1', '--format=%s', 'refs/heads/main'), 'other host commit', 'remote untouched by the job');
   const packet = h.packet();
-  for (const line of ['status', 'fetch origin', 'rebase origin/main', 'rebase --continue', 'push origin HEAD:main', 'status -sb', 'rebase --abort']) {
+  for (const line of ['status', 'fetch origin', 'rebase origin/main', 'add -u', 'rebase --continue', 'push origin HEAD:main', 'status -sb', 'rebase --abort']) {
     assert.ok(packet.includes(`  git -C ${q(h.repo)} ${line}\n`), line);
   }
   assert.ok(packet.includes('  rm ~/.agents/knowledge-triage/ATTENTION\n'));
@@ -333,6 +339,32 @@ test('rebase conflict: the same DIGEST tail edited on both sides; rebase is abor
   assertSafeCalls(calls);
   t.diagnostic(`job git calls (rebase conflict): ${JSON.stringify(calls)}`);
   t.diagnostic(`ATTENTION packet (conflict on rebase):\n${packet}`);
+});
+
+test('race commit touching DIGEST from another host is not this run\'s digest commit: ATTENTION, not success', async () => {
+  const h = makeHarness();
+  h.configure({ skipSourceDigest: true, commitFile: 'topics/base.md', race: { file: DIGEST_REL, text: '2026-09-29 · other-host → merged:z.md\n' } });
+  h.note();
+  const result = await h.run();
+  assert.equal(result.receipt.status, 'attention');
+  assert.match(result.receipt.reason, /no commit touching its source path/);
+  assert.equal(result.receipt.publication.repair.outcome, 'pushed');
+  assertSafeCalls(h.readCalls());
+});
+
+test('two own commits ahead: the repair is not attempted, no rebase, no push, the remote is unchanged', async () => {
+  const h = makeHarness();
+  h.configure({ commits: 2, race: { file: 'topics/race.md', text: 'raced\n' } });
+  h.note();
+  const result = await h.run();
+  assert.equal(result.receipt.status, 'attention');
+  assert.match(result.receipt.reason, /repair not attempted: expected exactly one own commit .* found 2 ahead and 2/);
+  assert.equal(result.receipt.publication.repair.attempted, false);
+  const calls = h.readCalls();
+  assert.ok(!names(calls).includes('rebase'), 'no rebase');
+  assert.ok(!names(calls).includes('push'), 'no push');
+  assert.equal(h.originHead(), h.g(h.other, 'rev-parse', 'HEAD'), 'the remote is exactly what the other host pushed');
+  assertSafeCalls(calls);
 });
 
 test('second push rejection: exactly one rebase, one push, then ATTENTION; no second rebase', async () => {

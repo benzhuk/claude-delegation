@@ -385,18 +385,20 @@ export async function runKnowledgeTriage(options = {}) {
     // Publication identity: strict only when this run changed DIGEST; otherwise unverified just defers.
     let pub = await publicationState(opts);
     let repairNote = "";
+    let repairBase = null;
     // Lane 71 item 2: this run changed DIGEST and origin moved before the skill could push its one commit.
     if (digestChanged && !pub.verified && pub.head && pub.remoteRef && pub.head !== pub.remoteRef) {
       const fix = await repairPushRace(opts, { repo: receipt.sync.repo, branch: receipt.sync.branch, before: receipt.dotfilesBefore });
       receipt.publication = { ...receipt.publication, repair: fix.stop ? { attempted: true, outcome: fix.stop.kind } : fix.pushed ? { attempted: true, outcome: "pushed" } : { attempted: false, why: fix.why } };
       if (fix.stop) return await attend(fix.stop.reason, fix.stop.reason, recoveryBlock(fix.stop.kind, receipt.sync.repo, receipt.sync.branch));
-      if (fix.pushed) pub = await publicationState(opts);
+      if (fix.pushed) { repairBase = fix.base; pub = await publicationState(opts); }
       else repairNote = ` [repair not attempted: ${fix.why}]`;
     }
     receipt.dotfilesSha = pub.head;
     receipt.publication = { ...receipt.publication, verified: pub.verified, reason: pub.reason, head: pub.head, remoteRef: pub.remoteRef, digestPath: pub.digestRel };
     if (digestChanged) {
-      const commit = await digestCommitSince(opts, pub, receipt.dotfilesBefore);
+      // After a repair only the replayed own commit counts; origin's raced commits sit below repairBase.
+      const commit = await digestCommitSince(opts, pub, repairBase ?? receipt.dotfilesBefore);
       const problem = !pub.verified ? pub.reason : !commit ? "DIGEST changed but no commit touching its source path since the run began" : null;
       if (problem) {
         receipt.publication = { ...receipt.publication, verified: false, reason: problem };

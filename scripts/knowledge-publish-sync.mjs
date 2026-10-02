@@ -89,6 +89,8 @@ export async function repairPushRace(options, { repo, branch, before }) {
   const fetch = await git(options, repo, ["fetch", "--no-tags", "--no-prune", "origin"]);
   if (!fetch.ok) return { attempted: false, why: `fetch failed: ${fetch.error}` };
   const remote = `origin/${branch}`;
+  const onBranch = await git(options, repo, ["symbolic-ref", "--short", "HEAD"]);
+  if (!onBranch.ok || onBranch.out !== branch) return { attempted: false, why: `HEAD is no longer on ${branch}` };
   const unpushed = await git(options, repo, ["rev-list", `${remote}..HEAD`]);
   const own = await git(options, repo, ["rev-list", `${before}..HEAD`]);
   if (!unpushed.ok || !own.ok) return { attempted: false, why: `rev-list failed: ${unpushed.error || own.error}` };
@@ -97,6 +99,8 @@ export async function repairPushRace(options, { repo, branch, before }) {
   if (a.length !== 1 || b.length !== 1 || a[0] !== b[0]) {
     return { attempted: false, why: `expected exactly one own commit ahead of ${remote}, found ${a.length} ahead and ${b.length} since the run began` };
   }
+  const base = await git(options, repo, ["rev-parse", remote]);
+  if (!base.ok || !base.out) return { attempted: false, why: `rev-parse ${remote} failed: ${base.error}` };
   const rebase = await git(options, repo, ["rebase", remote]);
   if (!rebase.ok) {
     const abort = await git(options, repo, ["rebase", "--abort"]);
@@ -107,7 +111,7 @@ export async function repairPushRace(options, { repo, branch, before }) {
   if (!push.ok) {
     return { attempted: true, stop: { kind: "pushRejected", reason: `push rejected after one rebase: git push origin HEAD:${branch} in ${repo}: ${push.error}; no second rebase` } };
   }
-  return { attempted: true, pushed: true };
+  return { attempted: true, pushed: true, base: base.out };
 }
 
 /** Item 3. Paste-ready extra lines for the ATTENTION packet, one block per state; empty for none. */
@@ -142,6 +146,7 @@ export function recoveryBlock(kind, repo, branch) {
       `  git -C ${r} fetch origin`,
       `  git -C ${r} rebase origin/${b}`,
       "That rebase stops at the same conflict. Resolve the files by hand, then:",
+      `  git -C ${r} add -u`,
       `  git -C ${r} rebase --continue`,
       `  git -C ${r} push origin HEAD:${b}`,
       `  git -C ${r} status -sb`,
