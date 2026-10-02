@@ -1490,3 +1490,77 @@ test("hooks.json runs wiring-check.mjs --line --hook on SessionStart, pointed at
   assert.ok(fs.existsSync(path.join(repoRoot, referenced)), `${referenced} must exist`);
 });
 
+
+// ---------------------------------------------------------------------------
+// Lane 74 item 6: the SessionStart --hook path ends with a fail-open timer refresh
+// ---------------------------------------------------------------------------
+
+import { refreshIfRegistered } from "./janitor-timer-refresh.mjs";
+
+test("lane 74: --hook calls the timer refresh once, after its own output, with the injected home; bare --line never does", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const calls = [];
+  const order = [];
+  const origLog = console.log;
+  let out = "";
+  console.log = (s) => { order.push(String(s).startsWith("janitor timer") ? "refresh-line" : "line"); out += `${s}\n`; };
+  try {
+    const refresh = (a) => { calls.push(a); order.push("refresh"); return { action: "none" }; };
+    const scriptPath = staleFixture(home, { running: "0.20.9", installedVersions: ["0.20.16"] });
+    assert.equal(main(["--line", "--hook"], { env: {}, home, scriptPath, refresh }), 0);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].home, home, "the refresh is pointed at the injected home, never the real one");
+    assert.deepEqual(order, ["line", "refresh"], "the hook's own output comes first, the refresh after it");
+    main(["--line"], { env: {}, home, scriptPath, refresh });
+    main(["--json"], { env: {}, home, scriptPath, refresh });
+    assert.equal(calls.length, 1, "only the SessionStart --hook caller refreshes");
+  } finally {
+    console.log = origLog;
+  }
+});
+
+test("lane 74: a refresh that throws never changes the hook's exit code or output (fail open)", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const scriptPath = staleFixture(home, { running: "0.20.9", installedVersions: ["0.20.16"] });
+  const base = runMainCapturing(["--line", "--hook"], { home, scriptPath, refresh: () => ({ action: "none" }) });
+  const thrown = runMainCapturing(["--line", "--hook"], { home, scriptPath, refresh: () => { throw new Error("scheduler on fire"); } });
+  assert.equal(thrown.code, 0);
+  assert.equal(thrown.out, base.out);
+});
+
+test("lane 74: a registered timer from an older release is re-registered through the hook, with an injected install (no scheduler is reached)", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const repo = path.join(home, "repo");
+  const oldRoot = path.join(home, "plugin-old");
+  const newRoot = path.join(home, "plugin-new");
+  write(home, ".agents/janitor/installed.json", `${JSON.stringify({ scheduler: "systemd-user", name: "janitor-record", repo, hour: 7 })}\n`);
+  write(home, ".config/systemd/user/janitor-record.service", `[Service]\nExecStart=node "${oldRoot}/scripts/janitor.mjs" --record --repo "${repo}" --apply --host fixture-host\n`);
+  const installs = [];
+  const unit = path.join(home, ".config", "systemd", "user", "janitor-record.service");
+  // what the real installer does on success: the unit now bakes in the new release's root
+  const install = (argv) => { installs.push(argv); fs.writeFileSync(unit, `[Service]\nExecStart=node "${newRoot}/scripts/janitor.mjs" --record\n`); return 0; };
+  const refresh = (a) => refreshIfRegistered({ ...a, install, platform: "linux", pluginRoot: newRoot, forceRoot: true });
+  const { code, out } = runMainCapturing(["--line", "--hook"], { home, refresh });
+  assert.equal(code, 0);
+  assert.equal(installs.length, 1, "the installer is called once, by the injected install");
+  assert.deepEqual(installs[0].slice(0, 6), ["--repo", repo, "--hour", "7", "--enable", "--host"]);
+  assert.match(out, /^janitor timer: refreshed: re-registered from /m);
+  // a second session on the same release: recorded success, nothing more to do, no installer call
+  runMainCapturing(["--line", "--hook"], { home, refresh });
+  assert.equal(installs.length, 1);
+});
+
+test("lane 74: --hook with a scratch home that has no timer registered stays silent and calls nothing real", () => {
+  const home = mkHome();
+  write(home, ".agents/lean-rules.md", "# lean rules\n");
+  wireEverythingElse(home);
+  const { code, stdout } = runCli(["--line", "--hook"], home);
+  assert.equal(code, 0);
+  assert.doesNotMatch(stdout, /janitor timer/);
+});

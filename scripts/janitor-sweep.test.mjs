@@ -492,6 +492,7 @@ describe("review round 1 fixes", () => {
     const unpushed = second.rows.filter((r) => r.status === "unpushed-archive" && r.repo === repo);
     assert.ok(unpushed.length >= 1, "the local archive branch is reported");
     assert.equal(unpushed[0].action, "report-only");
+    assert.match(unpushed[0].detail, /narrow fetch refspec/, "the row names the narrow-refspec false positive");
     assert.equal(git(["show", `${unpushed[0].branch}:u.txt`], repo), "untracked\n", "the archived work is intact on that branch");
   });
 

@@ -200,7 +200,7 @@ function sweepBranches(ctx, repo, list, records, rows, main) {
   for (const full of fulls) {
     const branch = full.slice("refs/heads/".length);
     if (branch.startsWith("archive/") && !hasRef(repo, `refs/remotes/origin/${branch}`)) {
-      rows.push(row(CLASS_IDS.unmergedBranch, { repo, branch, status: "unpushed-archive", action: "report-only", detail: "local archive branch is not on origin; the archived work exists on this disk only" }));
+      rows.push(row(CLASS_IDS.unmergedBranch, { repo, branch, status: "unpushed-archive", action: "report-only", detail: "local archive branch is not on origin; the archived work exists on this disk only (a clone with a narrow fetch refspec has no origin/archive/* tracking refs and reports every pushed archive here: false positive, check with git ls-remote)" }));
     }
   }
   if (!main) {

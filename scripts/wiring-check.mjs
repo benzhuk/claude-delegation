@@ -6,7 +6,10 @@
 //
 // checkWiring() is pure with respect to its inputs (home, platform, fsImpl, now, lists, env are all
 // passed in with real defaults) and READS ONLY - it never edits settings.json, never installs a
-// hook, never deletes a file, never writes anything at all.
+// hook, never deletes a file, never writes anything at all. (The one exception is NOT in
+// checkWiring(): the CLI's `--hook` SessionStart path ends with a fail-open call to
+// janitor-timer-refresh.mjs, which re-registers an ALREADY-registered janitor timer from this
+// release - lane 74 item 6. See refreshJanitorTimer() below.)
 //
 // Two check lists are merged by id, second wins: this file's sibling `required-wiring.default.json`
 // (the plugin's own needs - what it wires or reads on every machine) and an optional
@@ -56,6 +59,12 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkStaleness, staleSessionText, restartAdvisoryLine } from "./plugin-staleness.mjs";
+
+// Lane 74 item 6: loaded only by a real SessionStart `--hook` process, and a failed load (a copied
+// script without its sibling, a syntax error) leaves the wiring check itself untouched.
+const timerRefresh = process.argv.includes("--hook")
+  ? await import("./janitor-timer-refresh.mjs").catch(() => null)
+  : null;
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // This script's OWN file path (docs/specs/stale-session-guard-1/spec.md P7) - "it uses
@@ -488,6 +497,29 @@ function staleness(opts) {
   }
 }
 
+/** Lane 74 item 6: after the hook's own output, let a NEW release re-register an already-registered
+ * janitor timer. Fail open (any throw is swallowed), no new hook entry, silent unless it acted.
+ * `opts.refresh` injects the call (tests pass one so no real scheduler is ever reached); the real
+ * one shares what is left of the hook's 5 s bound with the wiring check that already ran. */
+function refreshJanitorTimer(opts) {
+  try {
+    const home = opts.home ?? homedir();
+    const hostEnv = opts.env ?? process.env;
+    const refresh = opts.refresh
+      ?? (timerRefresh && ((o) => timerRefresh.refreshIfRegistered({ ...o, exec: timerRefresh.makeBoundedExec({ budgetMs: 4300 - process.uptime() * 1000 }) })));
+    if (!refresh) return;
+    const args = { home, env: hostEnv };
+    const root = opts.pluginRoot ?? hostEnv?.CLAUDE_PLUGIN_ROOT;
+    if (root) args.pluginRoot = root;
+    const r = refresh(args);
+    if (r && (r.action === "refreshed" || r.action === "refused" || r.action === "failed")) {
+      console.log(`janitor timer: ${r.action}: ${r.reason}`);
+    }
+  } catch {
+    /* fail open */
+  }
+}
+
 export function main(argv = process.argv.slice(2), opts = {}) {
   const known = new Set(["--line", "--json", "--hook"]);
   const unknown = argv.filter((a) => !known.has(a));
@@ -534,7 +566,10 @@ export function main(argv = process.argv.slice(2), opts = {}) {
   // --hook: a Claude Code command hook's non-zero exit drops its stdout (a non-blocking error), so
   // the SessionStart caller keeps exit 0 and the line still reaches the session; the red exit is
   // for a human or agent running the CLI directly (bare `--line`, `--json`, or the table).
-  if (argv.includes("--hook")) return 0;
+  if (argv.includes("--hook")) {
+    refreshJanitorTimer(opts);
+    return 0;
+  }
   return (result.ok && !stale.stale) ? 0 : 1;
 }
 
