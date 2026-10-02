@@ -2224,6 +2224,9 @@ function runSweepIfWanted({ argv, home, applyRequested, actSwitchedOff, now, swe
   try {
     const policy = loadSweepPolicy(home);
     if (!argv.includes("--sweep") && !policy.present) return null;
+    // A test run (node --test sets NODE_TEST_CONTEXT, inherited by children) never sweeps the DEFAULT roots,
+    // whatever home it ended up with: only an injected root list is allowed to run there.
+    if (!sweepOpts.roots && !policy.roots && process.env.NODE_TEST_CONTEXT) return null;
     const real = path.resolve(home) === path.resolve(os.homedir());
     const roots = sweepOpts.roots || policy.roots || defaultRoots({
       home,

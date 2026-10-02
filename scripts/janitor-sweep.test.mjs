@@ -416,6 +416,16 @@ describe("main() wiring: existing runs unchanged, sweep is opt-in", () => {
     assert.ok(Array.isArray(JSON.parse(on.out).sweep.rows));
   });
 
+  test("under node --test the default roots are never swept, even with --sweep and a policy file", () => {
+    writePolicy([CLASS_IDS.dirtyWorktree]);
+    try {
+      const r = runMain(["--no-fetch", "--sweep", "--apply"]);
+      assert.doesNotMatch(r.out, /SWEEP/);
+    } finally {
+      clearPolicy();
+    }
+  });
+
   test("a policy file turns the sweep on without a flag", () => {
     writePolicy([]);
     try {
