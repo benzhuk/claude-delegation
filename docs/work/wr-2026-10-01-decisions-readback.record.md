@@ -13,7 +13,7 @@ Lead-session: a7e8fc6b-cbf3-476b-aaea-23ad30508174
 Spec-session: a7e8fc6b-cbf3-476b-aaea-23ad30508174
 Spec-from: 2026-10-02T01:51:00Z
 Base: 3db2cc95321f177fa2b77b930c608171eeae96cd
-Workflow: pending
+Workflow: wf_fdb14d0a-2a9
 Log: 2026-10-02T01:51:00.000Z owned skills-o opened lane 72b after the live publish readback failed post lane 72 merge; build-loop Workflow next
 
 Measure: work lost or stalled
