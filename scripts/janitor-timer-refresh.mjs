@@ -6,7 +6,7 @@
 // root baked into that unit differs from THIS release's root (or cannot be read from it), it re-runs
 // the installer from this release with the registered repo, hour, name and host. It never installs a
 // timer that was never installed. No network; the only exec is the installer's own scheduler command,
-// bounded to 3 s. Fail open: any error ends in exit 0 and (at most) one line. Silent when nothing was
+// bounded by ONE 4.5 s deadline (2 s per exec). Fail open: any error ends in exit 0 and (at most) one line. Silent when nothing was
 // needed. The installer itself still refuses a root that is not an installed plugin location, so a
 // session started from a worktree cannot re-point a live timer at that worktree.
 import fs from "node:fs";
@@ -18,7 +18,30 @@ import { fileURLToPath } from "node:url";
 import { main as installerMain } from "./install-janitor-timer.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const EXEC_TIMEOUT_MS = 3000;
+const EXEC_TIMEOUT_MS = 2000;
+const TOTAL_BUDGET_MS = 4500; // under the hook's 5 s bound, however many scheduler commands the installer issues
+
+/** An exec that shares ONE deadline: each call gets min(per-exec bound, time left); none once the budget is gone. */
+export function makeBoundedExec({ execFile = execFileSync, now = Date.now, budgetMs = TOTAL_BUDGET_MS, perExecMs = EXEC_TIMEOUT_MS } = {}) {
+  const deadline = now() + budgetMs;
+  return (cmd, args, o) => {
+    const left = deadline - now();
+    if (left <= 0) throw new Error("refresh time budget exhausted before running " + cmd);
+    return execFile(cmd, args, { ...o, timeout: Math.min(perExecMs, left) });
+  };
+}
+
+const refreshFile = (home) => path.join(home, ".agents", "janitor", "refresh.json");
+
+/** True only when a refresh from `root` was recorded as accepted by the scheduler (the unit file alone proves nothing). */
+function refreshRecorded(home, root) {
+  try {
+    const rec = JSON.parse(fs.readFileSync(refreshFile(home), "utf8"));
+    return rec?.ok === true && typeof rec.root === "string" && sameRoot(rec.root, root);
+  } catch {
+    return false;
+  }
+}
 
 const fold = (p) => (process.platform === "win32" || process.platform === "darwin" ? p.toLowerCase() : p);
 const sameRoot = (a, b) => fold(path.resolve(a).replace(/[\\/]+$/, "")) === fold(path.resolve(b).replace(/[\\/]+$/, ""));
@@ -85,7 +108,8 @@ export function refreshIfRegistered({
     return { action: "none", reason: "registered unit file not found; never installing a timer that was not installed" };
   }
   const baked = bakedRootFromUnit(text);
-  if (baked && sameRoot(baked, pluginRoot)) return { action: "current", reason: "timer already runs this release" };
+  // The unit text is written before the scheduler accepts it, so "baked equals this root" is current only with a recorded success.
+  if (baked && sameRoot(baked, pluginRoot) && refreshRecorded(home, pluginRoot)) return { action: "current", reason: "timer already runs this release" };
 
   const argv = ["--repo", String(installed.repo), "--hour", String(installed.hour), "--enable"];
   if (name !== "janitor-record") argv.push("--name", name);
@@ -93,9 +117,16 @@ export function refreshIfRegistered({
   if (host) argv.push("--host", host[1]);
   if (forceRoot) argv.push("--force-root");
   const lines = [];
-  const boundedExec = exec || ((cmd, args, o) => execFileSync(cmd, args, { ...o, timeout: EXEC_TIMEOUT_MS }));
+  const boundedExec = exec || makeBoundedExec();
   const code = install(argv, { home, platform, pluginRoot, env, exec: boundedExec, stdout: (s) => lines.push(s) });
-  if (code === 0) return { action: "refreshed", reason: `re-registered from ${pluginRoot} (was ${baked || "unreadable"})`, code };
+  if (code === 0) {
+    try {
+      fs.writeFileSync(refreshFile(home), `${JSON.stringify({ root: path.resolve(pluginRoot), ok: true })}\n`);
+    } catch {
+      /* unwritable: the next session simply retries */
+    }
+    return { action: "refreshed", reason: `re-registered from ${pluginRoot} (was ${baked || "unreadable"})`, code };
+  }
   return { action: code === 1 ? "refused" : "failed", reason: lines.join("").trim().split("\n")[0] || `installer exit ${code}`, code };
 }
 

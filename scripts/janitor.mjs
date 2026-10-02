@@ -2022,7 +2022,7 @@ function baseShaFor(root, mainBranch) {
  * gains a ` safe=<safeLeft total> removed=<removed count>` suffix so the read-back Ben asked for
  * (item 4: "the drift line shows the safe class at zero") is answerable from this file alone.
  */
-export function writeRecord({ root, dir, state, mainBranch, now = new Date(), hostName = os.hostname(), act = "not-requested", applyLog = [] }) {
+export function writeRecord({ root, dir, state, mainBranch, now = new Date(), hostName = os.hostname(), act = "not-requested", applyLog = [], sweep = null }) {
   const host = sanitizeHost(hostName);
   // J1 review round 2 (F7): `toISOString()` is UTC. facts.md fixes Ben's clock as America/New_York,
   // so a run between 20:00 and 24:00 EDT/EST filed under UTC's tomorrow - a drift record dated a day
@@ -2068,6 +2068,8 @@ export function writeRecord({ root, dir, state, mainBranch, now = new Date(), ho
     act,
     removed,
     safeLeft,
+    // Lane 74: what the multi-root sweep did this run (rows that acted, failed, skipped or stopped); absent unless it ran.
+    ...(sweep?.result ? { sweep: { repos: sweep.result.repos.length, rows: sweep.result.rows.filter((r) => /^(archived|failed|skipped|stopped)/.test(r.action)) } } : {}),
   };
   // Seam review MEDIUM 2: a later same-day run (the integrator's `janitor --record`, a hand
   // `--apply`) must never overwrite an earlier run's `removed` list - it is the only durable
@@ -2213,9 +2215,17 @@ function parseFlags(argv, home) {
  * and the home `applySafe`'s idle check reads; defaults to the real `os.homedir()` (read at call time, so
  * a test that sets HOME/USERPROFILE still works), and a test passes a fixture dir so nothing real is touched.
  */
+// Lane 74 review: win32 has no /proc or lsof, so the rename probe is the real in-use check there (same as applySafe).
+function sweepPathInUse(p) {
+  if (process.platform !== "win32") return worktreeHasOpenProcess(p);
+  const probe = winRenameBusyProbe(p);
+  if (probe.catastrophic) throw new Error(`stopped: in-use probe could not put ${p} back: ${probe.detail}`);
+  return probe.busy;
+}
+
 /**
- * Lane 74 (items 2, 3, 5 report part, 7): the multi-root sweep, DISPLAY ONLY as far as the exit code
- * and the existing report are concerned. Runs when --sweep is given or when `<home>/.agents/janitor-
+ * Lane 74 (items 2, 3, 5 report part, 7): the multi-root sweep. Its rows are printed after the existing report, which
+ * is unchanged; a sweep row that tried to act and failed makes an --apply run exit 1 (never 2). Runs when --sweep is given or when `<home>/.agents/janitor-
  * policy.json` exists; otherwise a run is byte-for-byte what it was. Never throws (fail open).
  * `sweepOpts` is the test seam: { roots, tmpScratch, varTmp, reclaim }. Without `roots`, the default
  * root list is built from `home` (and, only when `home` IS the real home, the real Temp and /var/tmp).
@@ -2224,9 +2234,9 @@ function runSweepIfWanted({ argv, home, applyRequested, actSwitchedOff, now, swe
   try {
     const policy = loadSweepPolicy(home);
     if (!argv.includes("--sweep") && !policy.present) return null;
-    // A test run (node --test sets NODE_TEST_CONTEXT, inherited by children) never sweeps the DEFAULT roots,
-    // whatever home it ended up with: only an injected root list is allowed to run there.
-    if (!sweepOpts.roots && !policy.roots && process.env.NODE_TEST_CONTEXT) return null;
+    // A test run (node --test sets NODE_TEST_CONTEXT, inherited by children) sweeps ONLY an injected root list:
+    // neither the default roots nor a policy file's roots (a test that omits `home` reads the REAL policy file).
+    if (!sweepOpts.roots && process.env.NODE_TEST_CONTEXT) return null;
     const real = path.resolve(home) === path.resolve(os.homedir());
     const roots = sweepOpts.roots || policy.roots || defaultRoots({
       home,
@@ -2237,7 +2247,7 @@ function runSweepIfWanted({ argv, home, applyRequested, actSwitchedOff, now, swe
     const nowMs = typeof now === "number" ? now : Date.now();
     const result = runSweep({
       home, roots, apply, policy, nowMs, mainBranch, reclaim: sweepOpts.reclaim || null,
-      deps: { listWorktrees, listRecords, idleHours, pathHasOpenProcess: worktreeHasOpenProcess, fetchOrigin },
+      deps: { listWorktrees, listRecords, idleHours, pathHasOpenProcess: sweepPathInUse, fetchOrigin },
     });
     return { result, apply, policy, text: formatSweep(result, { apply, policy }) };
   } catch (err) {
@@ -2303,10 +2313,11 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd(), now, a
     // F2 (redteam): --record now writes AFTER applySafe (never before it), including from the catch
     // path below when apply throws partway - the record is the restorable account of what actually
     // happened this run, not a snapshot of what was about to be attempted.
+    let sweep = null; // set below, after applySafe and before the (normal-path) record is written
     const writeRecordIfRequested = () => {
       if (!record) return;
       try {
-        const recordArgs = { root: toplevel, dir: record, state, mainBranch: config.main_branch || "main", act, applyLog };
+        const recordArgs = { root: toplevel, dir: record, state, mainBranch: config.main_branch || "main", act, applyLog, sweep };
         if (host) recordArgs.hostName = host;
         writeRecord(recordArgs);
       } catch (err) {
@@ -2327,6 +2338,8 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd(), now, a
         return 1;
       }
     }
+    // Lane 74: after applySafe (so a SAFE removal is already done) and before the record and the report.
+    sweep = runSweepIfWanted({ argv, home, applyRequested: applyFlag, actSwitchedOff, now, sweepOpts, mainBranch: config.main_branch || "main" });
     writeRecordIfRequested();
 
     // J5: the wiring check is its own read-only tool with its own fail-open contract - a failure
@@ -2343,9 +2356,6 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd(), now, a
     // throws (listOutsideEntries already catches readdir/stat failures per entry), so no wrapping
     // try/catch is needed here.
     const outsideRows = outsideFlag ? gatherOutside() : null;
-
-    // Lane 74: after applySafe (so a SAFE removal is already done) and before the report prints.
-    const sweep = runSweepIfWanted({ argv, home, applyRequested: applyFlag, actSwitchedOff, now, sweepOpts, mainBranch: config.main_branch || "main" });
 
     if (jsonFlag) {
       console.log(
@@ -2389,7 +2399,9 @@ export function main(argv = process.argv.slice(2), { cwd = process.cwd(), now, a
         state.judgment.untrackedFiles.length > 0 ||
         (state.judgment.remoteBranches || []).length > 0 ||
         state.judgment.workarounds.some((w) => w.overdue);
-      return applyFailed || judgmentRemains ? 1 : 0;
+      // Lane 74: a sweep row that tried to act and failed (or a sweep that stopped) is a failed apply, never exit 2.
+      const sweepFailed = Boolean(sweep?.result?.rows.some((r) => r.action === "failed" || r.action === "stopped"));
+      return applyFailed || judgmentRemains || sweepFailed ? 1 : 0;
     }
     return hasFindings(state) ? 1 : 0;
   } catch (err) {

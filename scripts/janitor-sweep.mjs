@@ -15,9 +15,9 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { withoutRepoLocatingGitEnv } from "../skills/multi/scripts/transport.mjs";
-import { scanRoots, defaultRoots, registeredWorktrees, gitMarkerKind, normPath } from "./janitor-roots.mjs";
+import { scanRoots, defaultRoots, registeredWorktrees, gitMarkerKind, normPath, isExcludedPath } from "./janitor-roots.mjs";
 import { collectRecords, ownerOf } from "./janitor-owner.mjs";
-import { archiveThenRemoveWorktree, archiveThenDeleteBranch, archiveCheckout, statusCounts } from "./janitor-archive.mjs";
+import { archiveThenRemoveWorktree, archiveThenDeleteBranch, archiveCheckout, statusCounts, matchedExcludedRemote, DEFAULT_EXCLUDE_REMOTES } from "./janitor-archive.mjs";
 
 export const CLASS_IDS = Object.freeze({
   dirtyWorktree: "dirty-worktree-archive",
@@ -36,23 +36,24 @@ export function policyPath(home) {
   return path.join(home, ".agents", "janitor-policy.json");
 }
 
-/** { present, act:Set, exclude:[], roots:null|[], problem } - never throws; a bad file acts on nothing. */
+/** { present, act:Set, exclude:[], excludeRemotes:[], roots:null|[], problem } - never throws; a bad file acts on nothing. */
 export function loadSweepPolicy(home) {
   const file = policyPath(home);
   let text;
   try {
     text = fs.readFileSync(file, "utf8");
   } catch (err) {
-    return { present: false, act: new Set(), exclude: [], roots: null, problem: err?.code === "ENOENT" ? null : `unreadable (${err?.code})` };
+    return { present: false, act: new Set(), exclude: [], excludeRemotes: [], roots: null, problem: err?.code === "ENOENT" ? null : `unreadable (${err?.code})` };
   }
   try {
     const parsed = JSON.parse(text);
     const act = new Set(Array.isArray(parsed?.act) ? parsed.act.filter((x) => typeof x === "string") : []);
     const exclude = Array.isArray(parsed?.exclude) ? parsed.exclude.filter((x) => typeof x === "string") : [];
+    const excludeRemotes = Array.isArray(parsed?.excludeRemotes) ? parsed.excludeRemotes.filter((x) => typeof x === "string" && x) : [];
     const roots = Array.isArray(parsed?.roots) ? parsed.roots.filter((r) => r && typeof r.path === "string" && typeof r.kind === "string") : null;
-    return { present: true, act, exclude, roots, problem: null };
+    return { present: true, act, exclude, excludeRemotes, roots, problem: null };
   } catch {
-    return { present: true, act: new Set(), exclude: [], roots: null, problem: "not valid JSON; every new class reports only" };
+    return { present: true, act: new Set(), exclude: [], excludeRemotes: [], roots: null, problem: "not valid JSON; every new class reports only" };
   }
 }
 
@@ -95,6 +96,7 @@ function sweepWorktrees(ctx, repo, list, records, rows) {
   let owned = 0;
   for (const wt of list) {
     if (wt.main || wt.bare) continue;
+    if (isExcludedPath(wt.path, { home: ctx.home, exclude: ctx.exclude })) continue; // the exclude list and BTO/dotfiles apply to registered worktrees too
     const who = ownerOf({ path: wt.path, branch: wt.branch }, repo, list, records);
     if (who.owned) {
       owned += 1;
@@ -129,6 +131,11 @@ function sweepWorktrees(ctx, repo, list, records, rows) {
       continue;
     }
     const name = path.basename(wt.path);
+    const btoRemote = matchedExcludedRemote(wt.path, ctx.excludeRemotes);
+    if (btoRemote) {
+      rows.push(row(CLASS_IDS.dirtyWorktree, { ...base, action: "keep", detail: `excluded (BTO remote: origin matches ${btoRemote})` }));
+      continue;
+    }
     if (!ctx.acts(CLASS_IDS.dirtyWorktree)) {
       rows.push(row(CLASS_IDS.dirtyWorktree, { ...base, action: "would-archive-then-remove", detail: `${counts.dirty} changed path(s), idle ${Math.floor(idle)}h; report mode` }));
       continue;
@@ -137,21 +144,53 @@ function sweepWorktrees(ctx, repo, list, records, rows) {
       rows.push(row(CLASS_IDS.dirtyWorktree, { ...base, action: "skipped", detail: "origin fetch failed this run; unverifiable" }));
       continue;
     }
-    const r = archiveThenRemoveWorktree({ repoRoot: repo, wtPath: wt.path, name });
+    const r = archiveThenRemoveWorktree({ repoRoot: repo, wtPath: wt.path, name, excludeRemotes: ctx.excludeRemotes });
     rows.push(row(CLASS_IDS.dirtyWorktree, { ...base, action: r.ok ? "archived-then-removed" : r.skipped ? "skipped" : "failed", detail: r.ok ? `${r.ref} ${r.sha}` : r.skipped || r.error }));
   }
   return owned;
 }
 
-function sweepBranches(ctx, repo, list, records, rows) {
-  const mainBranch = ctx.mainBranch;
-  const originMain = `refs/remotes/origin/${mainBranch}`;
-  const baseRef = hasRef(repo, originMain) ? originMain : hasRef(repo, `refs/heads/${mainBranch}`) ? `refs/heads/${mainBranch}` : null;
-  if (!baseRef) return;
+/**
+ * The base branch of ONE repo: its origin/HEAD, then its own .agents/project.json main_branch, then main, then master;
+ * the first that exists as origin/<x> or a local branch. { name, baseRef, originRef } or null.
+ */
+function resolveMain(repo) {
+  const names = [];
+  const head = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], repo);
+  if (head.ok && head.out.trim()) names.push(head.out.trim().replace(/^origin\//, ""));
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(repo, ".agents", "project.json"), "utf8"));
+    if (typeof cfg?.main_branch === "string" && cfg.main_branch) names.push(cfg.main_branch);
+  } catch {
+    /* no or unreadable project config: fall through to the defaults */
+  }
+  names.push("main", "master");
+  for (const name of names) {
+    const originRef = `refs/remotes/origin/${name}`;
+    if (hasRef(repo, originRef)) return { name, baseRef: originRef, originRef };
+    if (hasRef(repo, `refs/heads/${name}`)) return { name, baseRef: `refs/heads/${name}`, originRef: null };
+  }
+  return null;
+}
+
+function sweepBranches(ctx, repo, list, records, rows, main) {
   const heads = git(["for-each-ref", "--format=%(refname)", "refs/heads/"], repo);
   if (!heads.ok) return;
+  const fulls = heads.out.split("\n").map((s) => s.trim()).filter(Boolean);
+  // A local archive/* branch that origin does not hold: the push failed or never ran; the work is on this disk only.
+  for (const full of fulls) {
+    const branch = full.slice("refs/heads/".length);
+    if (branch.startsWith("archive/") && !hasRef(repo, `refs/remotes/origin/${branch}`)) {
+      rows.push(row(CLASS_IDS.unmergedBranch, { repo, branch, status: "unpushed-archive", action: "report-only", detail: "local archive branch is not on origin; the archived work exists on this disk only" }));
+    }
+  }
+  if (!main) {
+    rows.push(row(CLASS_IDS.unmergedBranch, { repo, status: "unknown", action: "keep", detail: "no main branch resolved (origin/HEAD, project.json, main, master); branch classes skipped" }));
+    return;
+  }
+  const baseRef = main.baseRef;
   const checkedOut = new Set(list.map((w) => w.branch).filter(Boolean));
-  for (const full of heads.out.split("\n").map((s) => s.trim()).filter(Boolean)) {
+  for (const full of fulls) {
     const branch = full.slice("refs/heads/".length);
     if (PROTECTED.has(branch) || branch.startsWith("archive/") || checkedOut.has(branch)) continue;
     if (hasRef(repo, `refs/remotes/origin/${branch}`)) continue; // not local-only
@@ -161,6 +200,11 @@ function sweepBranches(ctx, repo, list, records, rows) {
     const ct = git(["log", "-1", "--format=%ct", full], repo);
     const ageH = ct.ok ? (ctx.nowMs / 1000 - Number(ct.out.trim())) / 3600 : NaN;
     const base = { repo, branch, status: "orphan" };
+    const btoRemote = matchedExcludedRemote(repo, ctx.excludeRemotes);
+    if (btoRemote) {
+      rows.push(row(CLASS_IDS.unmergedBranch, { ...base, action: "keep", detail: `excluded (BTO remote: origin matches ${btoRemote})` }));
+      continue;
+    }
     if (!Number.isFinite(ageH) || ageH < IDLE_FLOOR) {
       rows.push(row(CLASS_IDS.unmergedBranch, { ...base, action: "keep", detail: `last commit ${Number.isFinite(ageH) ? `${Math.floor(ageH)}h` : "unknown"} ago < ${IDLE_FLOOR}h` }));
       continue;
@@ -173,15 +217,15 @@ function sweepBranches(ctx, repo, list, records, rows) {
       rows.push(row(CLASS_IDS.unmergedBranch, { ...base, action: "skipped", detail: "origin fetch failed this run; unverifiable" }));
       continue;
     }
-    const r = archiveThenDeleteBranch({ repoRoot: repo, branch });
+    const r = archiveThenDeleteBranch({ repoRoot: repo, branch, excludeRemotes: ctx.excludeRemotes });
     rows.push(row(CLASS_IDS.unmergedBranch, { ...base, action: r.ok ? "archived-then-deleted" : r.skipped ? "skipped" : "failed", detail: r.ok ? `${r.ref} ${r.sha}` : r.skipped || r.error }));
   }
 }
 
 /** Merged origin branches (no open record): REPORT ONLY. Deleting one is a non-archive push, which this janitor never does. */
-function sweepMergedOrigin(ctx, repo, list, records, rows) {
-  const originMain = `refs/remotes/origin/${ctx.mainBranch}`;
-  if (!hasRef(repo, originMain)) return;
+function sweepMergedOrigin(ctx, repo, list, records, rows, main) {
+  const originMain = main?.originRef;
+  if (!originMain) return;
   const refs = git(["for-each-ref", "--format=%(refname)", "refs/remotes/origin/"], repo);
   if (!refs.ok) return;
   for (const full of refs.out.split("\n").map((s) => s.trim()).filter(Boolean)) {
@@ -215,11 +259,25 @@ function sweepDeregistered(ctx, scan, registered, rows) {
       rows.push(row(CLASS_IDS.deregistered, { ...base, action: "report-only", detail: "intact .git, no uncommitted changes; removal needs a hand unless reclaim accepts it" }));
       continue;
     }
+    const idle = ctx.deps.idleHours(folder.path, { home: ctx.home, now: ctx.nowMs });
+    if (!Number.isFinite(idle) || idle < IDLE_FLOOR) {
+      rows.push(row(CLASS_IDS.deregistered, { ...base, action: "keep", detail: `dirty (${counts.dirty} changed); idle ${Number.isFinite(idle) ? `${Math.floor(idle)}h < ${IDLE_FLOOR}h` : "unknown"}` }));
+      continue;
+    }
+    if (ctx.deps.pathHasOpenProcess(folder.path) !== false) {
+      rows.push(row(CLASS_IDS.deregistered, { ...base, action: "keep", detail: "a process holds this directory (or it could not be checked)" }));
+      continue;
+    }
+    const btoRemote = matchedExcludedRemote(folder.path, ctx.excludeRemotes);
+    if (btoRemote) {
+      rows.push(row(CLASS_IDS.deregistered, { ...base, action: "keep", detail: `excluded (BTO remote: origin matches ${btoRemote})` }));
+      continue;
+    }
     if (!ctx.acts(CLASS_IDS.deregistered)) {
       rows.push(row(CLASS_IDS.deregistered, { ...base, action: "would-archive", detail: `${counts.dirty} changed path(s), ${counts.ignored} ignored; report mode, then removal only via reclaim` }));
       continue;
     }
-    const r = archiveCheckout({ dir: folder.path, name: path.basename(folder.path) });
+    const r = archiveCheckout({ dir: folder.path, name: path.basename(folder.path), excludeRemotes: ctx.excludeRemotes });
     if (!r.ok) {
       rows.push(row(CLASS_IDS.deregistered, { ...base, action: r.skipped ? "skipped" : "failed", detail: r.skipped || r.error }));
       continue;
@@ -273,7 +331,8 @@ export function runSweep({ home, roots, apply, policy, nowMs, deps, exclude = []
   const { registered, perRepo, unreadable } = registeredWorktrees(scan.repos, deps.listWorktrees);
   const verified = new Map();
   const ctx = {
-    home, nowMs, deps, mainBranch,
+    home, nowMs, deps, mainBranch, exclude: allExclude,
+    excludeRemotes: [...DEFAULT_EXCLUDE_REMOTES, ...(policy?.excludeRemotes || [])],
     reclaim: reclaim || defaultReclaim(home),
     acts: (id) => Boolean(apply && policy?.act?.has(id)),
     repoVerified: (repo) => {
@@ -286,16 +345,22 @@ export function runSweep({ home, roots, apply, policy, nowMs, deps, exclude = []
   };
   const rows = [];
   let owned = 0;
-  for (const repo of scan.repos) {
-    const list = perRepo.get(repo);
-    if (!list) continue;
-    const records = collectRecords([repo, ...list.map((w) => w.path)], deps.listRecords);
-    owned += sweepWorktrees(ctx, repo, list, records, rows);
-    sweepBranches(ctx, repo, list, records, rows);
-    sweepMergedOrigin(ctx, repo, list, records, rows);
-    sweepUntracked(ctx, repo, rows);
+  try {
+    for (const repo of scan.repos) {
+      const list = perRepo.get(repo);
+      if (!list) continue;
+      const records = collectRecords([repo, ...list.map((w) => w.path)], deps.listRecords);
+      const main = resolveMain(repo);
+      owned += sweepWorktrees(ctx, repo, list, records, rows);
+      sweepBranches(ctx, repo, list, records, rows, main);
+      sweepMergedOrigin(ctx, repo, list, records, rows, main);
+      sweepUntracked(ctx, repo, rows);
+    }
+    sweepDeregistered(ctx, scan, registered, rows);
+  } catch (err) {
+    // A probe that could not put something back (or any other throw) stops the sweep; the rows already acted on stay in the report.
+    rows.push(row(CLASS_IDS.dirtyWorktree, { status: "stopped", action: "stopped", detail: String(err && err.message ? err.message : err) }));
   }
-  sweepDeregistered(ctx, scan, registered, rows);
   return { rows, repos: scan.repos, owned, unreadable };
 }
 

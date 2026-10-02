@@ -8,7 +8,7 @@ import path from "node:path";
 
 import { makeTempHome } from "./test-home.mjs";
 import { main as install } from "./install-janitor-timer.mjs";
-import { refreshIfRegistered, bakedRootFromUnit } from "./janitor-timer-refresh.mjs";
+import { refreshIfRegistered, bakedRootFromUnit, makeBoundedExec } from "./janitor-timer-refresh.mjs";
 
 const th = makeTempHome();
 after(() => th.cleanup());
@@ -62,13 +62,53 @@ describe("refreshIfRegistered", () => {
     assert.ok(f.calls.length > 0 && f.calls.every((c) => c.startsWith("systemctl --user")), "scheduler reloaded through the injected exec only");
   });
 
-  test("already on this release: current, no scheduler call", () => {
+  test("already on this release AND a recorded scheduler success: current, no scheduler call", () => {
     const f = fixture("linux");
-    f.register(f.roots.new);
+    f.register(f.roots.old);
+    assert.equal(refresh(f).action, "refreshed");
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.home, ".agents", "janitor", "refresh.json"), "utf8")), { root: path.resolve(f.roots.new), ok: true });
     f.calls.length = 0;
     const r = refresh(f);
     assert.equal(r.action, "current");
     assert.deepEqual(f.calls, []);
+  });
+
+  test("the unit text names this release but no success is recorded: the refresh is retried, not trusted", () => {
+    const f = fixture("linux");
+    f.register(f.roots.new); // the installer wrote the unit; nothing proves the scheduler accepted it
+    f.calls.length = 0;
+    const r = refresh(f);
+    assert.equal(r.action, "refreshed", r.reason);
+    assert.ok(f.calls.length > 0, "the scheduler was asked again");
+  });
+
+  test("a scheduler failure leaves no success record, so the next session retries", () => {
+    const f = fixture("linux");
+    f.register(f.roots.old);
+    const failing = () => { throw new Error("systemctl timed out"); };
+    const r = refresh(f, { exec: failing });
+    assert.equal(r.action, "refused");
+    assert.ok(unitOf(f).includes("plugin-new"), "the unit text was already rewritten");
+    assert.equal(fs.existsSync(path.join(f.home, ".agents", "janitor", "refresh.json")), false);
+    f.calls.length = 0;
+    assert.equal(refresh(f).action, "refreshed", "retried on the next session");
+    assert.ok(f.calls.length > 0);
+  });
+
+  test("the scheduler commands share ONE deadline: per-exec bound 2 s, nothing once the budget is spent", () => {
+    let t = 1000;
+    const seen = [];
+    const exec = makeBoundedExec({ now: () => t, execFile: (cmd, args, o) => { seen.push(o.timeout); t += 2400; } });
+    exec("a", [], {});
+    exec("b", [], {});
+    assert.deepEqual(seen, [2000, 2000]);
+    assert.throws(() => exec("c", [], {}), /budget exhausted/);
+    assert.equal(seen.length, 2, "no third exec once 4.5 s are spent");
+    let t2 = 0;
+    const seen2 = [];
+    const exec2 = makeBoundedExec({ now: () => t2, execFile: (c, a, o) => { seen2.push(o.timeout); t2 += 2000; } });
+    exec2("x", [], {}); exec2("y", [], {}); exec2("z", [], {});
+    assert.deepEqual(seen2, [2000, 2000, 500], "the last call is clipped to the time left");
   });
 
   test("registered but the unit file is gone: nothing is installed", () => {

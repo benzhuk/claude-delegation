@@ -58,8 +58,11 @@ function branchOfField(field) {
  * @returns {{ owned: boolean, work: string|null, via: string|null }}
  */
 export function ownerOf(subject, repoRoot, worktrees, records) {
+  // Closure never reverses: a work id with ANY closing copy (a lane worktree's checkout keeps the stale "open"
+  // copy it was cut with) is closed, so a stale open copy cannot keep owning a worktree.
+  const closedWork = new Set(records.filter((r) => !r.open).map((r) => r.work));
   for (const rec of records) {
-    if (!rec.open || !rec.worktree) continue;
+    if (!rec.open || !rec.worktree || closedWork.has(rec.work)) continue;
     const branchField = branchOfField(rec.worktree);
     const target = path.isAbsolute(rec.worktree) ? rec.worktree : path.resolve(repoRoot, rec.worktree);
     const registered = worktrees.find((w) => normPath(w.path) === normPath(target));

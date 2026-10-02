@@ -7,12 +7,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 
 import { makeTempHome } from "./test-home.mjs";
 import { main, listWorktrees, idleHours, pathHasOpenProcess, fetchOrigin } from "./janitor.mjs";
 import { listRecords } from "./work-record.mjs";
-import { discoverRepos, isExcludedPath } from "./janitor-roots.mjs";
+import { discoverRepos, isExcludedPath, normPath } from "./janitor-roots.mjs";
 import { ownerOf, collectRecords } from "./janitor-owner.mjs";
 import { archiveRefName } from "./janitor-archive.mjs";
 import { runSweep, formatSweep, loadSweepPolicy, CLASS_IDS } from "./janitor-sweep.mjs";
@@ -40,18 +40,18 @@ const git = (args, cwd) => execFileSync("git", args, { cwd, encoding: "utf8", st
 const uniq = (p) => `${p}-${process.pid}-${counter++}`;
 
 /** A repo under Code/<group> with a fixture bare origin; returns { repo, bare }. */
-function makeRepo(name, group = "") {
+function makeRepo(name, group = "", mainName = "main") {
   const repo = path.join(CODE, group, uniq(name));
   fs.mkdirSync(repo, { recursive: true });
-  git(["init", "-q", "-b", "main"], repo);
+  git(["init", "-q", "-b", mainName], repo);
   fs.writeFileSync(path.join(repo, "README.md"), "root\n");
   git(["add", "."], repo);
   git(["commit", "-q", "-m", "init"], repo);
   const bare = path.join(HOME, "origins", uniq(`${name}.git`));
   fs.mkdirSync(bare, { recursive: true });
-  git(["init", "-q", "--bare", "-b", "main"], bare);
+  git(["init", "-q", "--bare", "-b", mainName], bare);
   git(["remote", "add", "origin", bare], repo);
-  git(["push", "-q", "origin", "main"], repo);
+  git(["push", "-q", "origin", mainName], repo);
   return { repo, bare };
 }
 
@@ -84,9 +84,12 @@ const DAY = 86_400_000;
 const roots = [{ kind: "code", path: CODE }];
 const deps = { listWorktrees, listRecords, idleHours, pathHasOpenProcess, fetchOrigin };
 
-function sweep({ apply = false, act = [], plusDays = 2, reclaim } = {}) {
-  const policy = act.length ? { present: true, act: new Set(act), exclude: [], roots: null, problem: null } : loadSweepPolicy(HOME);
-  return runSweep({ home: HOME, roots, apply, policy, nowMs: Date.now() + plusDays * DAY, deps, reclaim });
+// `group` sweeps only CODE/<group> (an isolated tree); `depsOver` replaces single deps; `policyOver` extends the policy.
+function sweep({ apply = false, act = [], plusDays = 2, reclaim, group, depsOver = {}, policyOver = {} } = {}) {
+  const base = act.length ? { present: true, act: new Set(act), exclude: [], excludeRemotes: [], roots: null, problem: null } : loadSweepPolicy(HOME);
+  const policy = { ...base, ...policyOver };
+  const useRoots = group ? [{ kind: "code", path: path.join(CODE, group) }] : roots;
+  return runSweep({ home: HOME, roots: useRoots, apply, policy, nowMs: Date.now() + plusDays * DAY, deps: { ...deps, ...depsOver }, reclaim });
 }
 const rowsFor = (res, repo) => res.rows.filter((r) => r.repo === repo || (r.path && r.path.startsWith(repo)));
 const originRefs = (bare) => git(["for-each-ref", "--format=%(refname)", "refs/heads/"], bare).trim().split("\n").filter(Boolean);
@@ -382,8 +385,190 @@ describe("policy file (item 7)", () => {
   });
 });
 
+// Review round 1 (janitor74): every case below is isolated in its own CODE/<group> tree.
+const branchOff = (repo, branch, mainName = "main") => {
+  git(["checkout", "-q", "-b", branch, mainName], repo);
+  fs.writeFileSync(path.join(repo, `${branch.replace("/", "-")}.txt`), `${branch}\n`);
+  git(["add", "."], repo);
+  git(["commit", "-q", "-m", branch], repo);
+  git(["checkout", "-q", mainName], repo);
+};
+const makeStray = (repo, name) => {
+  const wtRoot = path.join(repo, ".claude", "worktrees");
+  fs.mkdirSync(wtRoot, { recursive: true });
+  const stray = path.join(wtRoot, name);
+  const bare = path.join(HOME, "origins", uniq(`${name}.git`));
+  fs.mkdirSync(bare, { recursive: true });
+  git(["init", "-q", "--bare", "-b", "main"], bare);
+  git(["clone", "-q", bare, stray], HOME);
+  fs.writeFileSync(path.join(stray, "a.txt"), "a\n");
+  git(["add", "."], stray);
+  git(["commit", "-q", "-m", "a"], stray);
+  git(["push", "-q", "origin", "main"], stray);
+  fs.writeFileSync(path.join(stray, "dirty.txt"), "uncommitted\n");
+  return { stray, bare };
+};
+const rejectPushes = (bare) => {
+  fs.mkdirSync(path.join(bare, "hooks"), { recursive: true });
+  const hook = path.join(bare, "hooks", "pre-receive");
+  fs.writeFileSync(hook, "#!/bin/sh\nexit 1\n");
+  fs.chmodSync(hook, 0o755);
+};
+const dirtyOrphan = (repo, branch, name) => {
+  const wt = addWt(repo, branch, name);
+  fs.writeFileSync(path.join(wt, "work.txt"), "uncommitted edit\n");
+  fs.writeFileSync(path.join(wt, "u.txt"), "untracked\n");
+  return wt;
+};
+const wtRows = (res, wt) => res.rows.filter((r) => r.class === CLASS_IDS.dirtyWorktree && r.path && normPath(r.path) === normPath(wt));
+
+describe("review round 1 fixes", () => {
+  test("MAJOR 1: a closed record on main releases a worktree whose own checkout still holds the stale open copy", () => {
+    const { repo } = makeRepo("stale", "iso-stale");
+    writeRecord(repo, "wr-stale", "open", "build/lane-s");
+    git(["add", "."], repo);
+    git(["commit", "-q", "-m", "record"], repo);
+    const terr = addWt(repo, "build/lane-s-builder", "wt-lane-s-builder"); // cut with the open copy checked out
+    fs.writeFileSync(path.join(terr, "u.txt"), "u\n");
+    const open = sweep({ group: "iso-stale" });
+    assert.equal(wtRows(open, terr).length, 0, "owned while the record is open");
+    assert.ok(open.owned >= 1);
+    writeRecord(repo, "wr-stale", "closed", "build/lane-s"); // main's copy closes; the worktree's copy stays open
+    assert.match(fs.readFileSync(path.join(terr, "docs", "work", "wr-stale.record.md"), "utf8"), /Status: open/);
+    const closed = sweep({ group: "iso-stale" });
+    assert.equal(wtRows(closed, terr)[0]?.action, "would-archive-then-remove");
+  });
+
+  test("MAJOR 2: a probe that throws stops the sweep, keeps the rows already produced, and acts on nothing", () => {
+    const a = makeRepo("stopa", "iso-stop");
+    branchOff(a.repo, "stale/a");
+    const b = makeRepo("stopb", "iso-stop");
+    const wt = dirtyOrphan(b.repo, "feature/stopb", "stopb");
+    const res = sweep({ apply: true, act: [CLASS_IDS.dirtyWorktree, CLASS_IDS.unmergedBranch], group: "iso-stop", depsOver: { pathHasOpenProcess: () => { throw new Error("stopped: in-use probe could not put it back"); } } });
+    assert.ok(res.rows.some((r) => r.class === CLASS_IDS.unmergedBranch && r.repo === a.repo), "rows produced before the stop are kept");
+    const last = res.rows[res.rows.length - 1];
+    assert.equal(last.action, "stopped");
+    assert.match(last.detail, /in-use probe/);
+    assert.ok(fs.existsSync(wt));
+    assert.deepEqual(originRefs(b.bare), ["refs/heads/main"]);
+  });
+
+  test("MAJOR 2: a process that holds the directory protects the dirty worktree", () => {
+    const { repo, bare } = makeRepo("busy", "iso-busy");
+    const wt = dirtyOrphan(repo, "feature/busy", "busy");
+    const res = sweep({ apply: true, act: [CLASS_IDS.dirtyWorktree], group: "iso-busy", depsOver: { pathHasOpenProcess: () => true } });
+    assert.equal(wtRows(res, wt)[0].action, "keep");
+    assert.match(wtRows(res, wt)[0].detail, /a process holds/);
+    assert.ok(fs.existsSync(wt));
+    assert.deepEqual(originRefs(bare), ["refs/heads/main"]);
+  });
+
+  test("MAJOR 3: a deregistered dirty clone is held by the 24 h idle floor and by a live process", () => {
+    const { repo } = makeRepo("dgate", "iso-dgate");
+    const { stray, bare } = makeStray(repo, "stray-gate");
+    const young = sweep({ apply: true, act: [CLASS_IDS.deregistered], group: "iso-dgate", plusDays: 0 });
+    const r = young.rows.find((x) => x.path === stray);
+    assert.equal(r.action, "keep");
+    assert.match(r.detail, /idle -?\d+h < 24h/);
+    assert.equal(git(["rev-parse", "--abbrev-ref", "HEAD"], stray).trim(), "main", "HEAD not detached");
+    const busy = sweep({ apply: true, act: [CLASS_IDS.deregistered], group: "iso-dgate", plusDays: 2, depsOver: { pathHasOpenProcess: () => true } });
+    assert.match(busy.rows.find((x) => x.path === stray).detail, /a process holds/);
+    assert.equal(git(["rev-parse", "--abbrev-ref", "HEAD"], stray).trim(), "main");
+    assert.deepEqual(originRefs(bare), ["refs/heads/main"], "nothing pushed");
+  });
+
+  test("MAJOR 4: a rejected archive push re-attaches HEAD, keeps the work, and the worktree keeps showing up", () => {
+    const { repo, bare } = makeRepo("rej", "iso-rej");
+    rejectPushes(bare);
+    const wt = dirtyOrphan(repo, "feature/rej", "rej");
+    const first = sweep({ apply: true, act: [CLASS_IDS.dirtyWorktree], group: "iso-rej" });
+    assert.equal(wtRows(first, wt)[0].action, "failed");
+    assert.match(wtRows(first, wt)[0].detail, /push failed/);
+    assert.match(git(["status", "-sb"], wt).split("\n")[0], /^## feature\/rej/, "HEAD is back on the branch");
+    assert.equal(fs.readFileSync(path.join(wt, "u.txt"), "utf8"), "untracked\n");
+    assert.equal(fs.readFileSync(path.join(wt, "work.txt"), "utf8"), "uncommitted edit\n");
+    const second = sweep({ apply: true, act: [CLASS_IDS.dirtyWorktree], group: "iso-rej" });
+    assert.equal(wtRows(second, wt)[0]?.action, "failed", "the stalled worktree is reported again, not silently dropped");
+    const unpushed = second.rows.filter((r) => r.status === "unpushed-archive" && r.repo === repo);
+    assert.ok(unpushed.length >= 1, "the local archive branch is reported");
+    assert.equal(unpushed[0].action, "report-only");
+    assert.equal(git(["show", `${unpushed[0].branch}:u.txt`], repo), "untracked\n", "the archived work is intact on that branch");
+  });
+
+  test("MAJOR 4: a successful archive leaves no unpushed-archive row behind", () => {
+    const { repo } = makeRepo("okarch", "iso-okarch");
+    dirtyOrphan(repo, "feature/okarch", "okarch");
+    const act = sweep({ apply: true, act: [CLASS_IDS.dirtyWorktree], group: "iso-okarch" });
+    assert.equal(act.rows.find((r) => r.class === CLASS_IDS.dirtyWorktree).action, "archived-then-removed");
+    const again = sweep({ apply: true, act: [CLASS_IDS.dirtyWorktree], group: "iso-okarch" });
+    assert.deepEqual(again.rows.filter((r) => r.status === "unpushed-archive"), []);
+  });
+
+  test("MAJOR 5: edits hidden by --skip-worktree are not archived-then-removed", () => {
+    const { repo, bare } = makeRepo("skipw", "iso-skipw");
+    const wt = addWt(repo, "feature/skipw", "skipw");
+    git(["update-index", "--skip-worktree", "work.txt"], wt);
+    fs.writeFileSync(path.join(wt, "work.txt"), "precious local edit\n");
+    fs.writeFileSync(path.join(wt, "u.txt"), "u\n");
+    const res = sweep({ apply: true, act: [CLASS_IDS.dirtyWorktree], group: "iso-skipw" });
+    assert.equal(wtRows(res, wt)[0].action, "skipped");
+    assert.match(wtRows(res, wt)[0].detail, /skip-worktree/);
+    assert.equal(fs.readFileSync(path.join(wt, "work.txt"), "utf8"), "precious local edit\n");
+    assert.deepEqual(originRefs(bare), ["refs/heads/main"]);
+  });
+
+  test("MINOR 1: a master-default repo gets its branch rows; a repo with no resolvable main says so", () => {
+    const m = makeRepo("mast", "iso-master", "master");
+    branchOff(m.repo, "stale/m", "master");
+    const res = sweep({ group: "iso-master" });
+    const r = res.rows.find((x) => x.class === CLASS_IDS.unmergedBranch && x.branch === "stale/m");
+    assert.equal(r.action, "would-archive-then-delete");
+    const t = makeRepo("trunkrepo", "iso-trunk", "trunk");
+    branchOff(t.repo, "stale/t", "trunk");
+    const none = sweep({ group: "iso-trunk" }).rows.find((x) => x.repo === t.repo);
+    assert.equal(none.action, "keep");
+    assert.match(none.detail, /no main branch resolved/);
+  });
+
+  test("MINOR 2: the policy exclude list applies to a registered worktree", () => {
+    const { repo, bare } = makeRepo("excl", "iso-excl");
+    const wt = dirtyOrphan(repo, "feature/excl", "excl");
+    const res = sweep({ apply: true, act: [CLASS_IDS.dirtyWorktree], group: "iso-excl", policyOver: { exclude: [wt] } });
+    assert.equal(wtRows(res, wt).length, 0);
+    assert.ok(fs.existsSync(wt));
+    assert.deepEqual(originRefs(bare), ["refs/heads/main"]);
+  });
+
+  test("MINOR 3: an origin that belongs to BTO (default pattern, or the policy's excludeRemotes) is never archived to", () => {
+    const { repo } = makeRepo("btoorigin", "iso-bto");
+    const wt = dirtyOrphan(repo, "feature/bto", "bto");
+    branchOff(repo, "stale/bto");
+    const real = git(["remote", "get-url", "origin"], repo).trim();
+    git(["remote", "set-url", "origin", "https://github.com/nucleusfilms/bto-x.git"], repo);
+    const res = sweep({ apply: true, act: [CLASS_IDS.dirtyWorktree, CLASS_IDS.unmergedBranch], group: "iso-bto" });
+    assert.equal(wtRows(res, wt)[0].action, "keep");
+    assert.match(wtRows(res, wt)[0].detail, /BTO remote/);
+    assert.match(res.rows.find((r) => r.branch === "stale/bto").detail, /BTO remote/);
+    assert.ok(fs.existsSync(wt));
+    assert.equal(git(["branch", "--list", "stale/bto"], repo).trim(), "stale/bto");
+    // a custom pattern from the policy file, against the fixture bare origin
+    git(["remote", "set-url", "origin", real], repo);
+    fs.mkdirSync(path.join(HOME, ".agents"), { recursive: true });
+    fs.writeFileSync(path.join(HOME, ".agents", "janitor-policy.json"), JSON.stringify({ act: [CLASS_IDS.dirtyWorktree], excludeRemotes: ["/origins/"] }));
+    try {
+      const policy = loadSweepPolicy(HOME);
+      assert.deepEqual(policy.excludeRemotes, ["/origins/"]);
+      const custom = sweep({ apply: true, group: "iso-bto", policyOver: policy });
+      assert.match(wtRows(custom, wt)[0].detail, /BTO remote/);
+      assert.ok(fs.existsSync(wt));
+    } finally {
+      clearPolicy();
+    }
+  });
+});
+
 describe("main() wiring: existing runs unchanged, sweep is opt-in", () => {
-  function runMain(args, { sweepOpts } = {}) {
+  function runMain(args, { sweepOpts, now } = {}) {
     const { repo } = makeRepo("wire");
     fs.mkdirSync(path.join(repo, ".agents"), { recursive: true });
     fs.writeFileSync(path.join(repo, ".agents", "project.json"), JSON.stringify({ name: "wire", vcs: "git", main_branch: "main" }));
@@ -392,7 +577,7 @@ describe("main() wiring: existing runs unchanged, sweep is opt-in", () => {
     console.log = (...a) => lines.push(a.join(" "));
     let code;
     try {
-      code = main(args, { cwd: repo, home: HOME, sweepOpts });
+      code = main(args, { cwd: repo, home: HOME, sweepOpts, now });
     } finally {
       console.log = orig;
     }
@@ -416,11 +601,49 @@ describe("main() wiring: existing runs unchanged, sweep is opt-in", () => {
     assert.ok(Array.isArray(JSON.parse(on.out).sweep.rows));
   });
 
-  test("under node --test the default roots are never swept, even with --sweep and a policy file", () => {
+  test("under node --test the default roots are never swept, even with --sweep and a policy file that names roots", () => {
+    fs.mkdirSync(path.join(HOME, ".agents"), { recursive: true });
+    fs.writeFileSync(path.join(HOME, ".agents", "janitor-policy.json"), JSON.stringify({ act: [CLASS_IDS.dirtyWorktree], roots: [{ kind: "code", path: CODE }] }));
+    try {
+      const r = runMain(["--no-fetch", "--sweep"]);
+      assert.doesNotMatch(r.out, /SWEEP/);
+    } finally {
+      clearPolicy();
+    }
+  });
+
+  test("a live process in a dirty worktree's directory keeps it, through main()'s own in-use check", async () => {
+    const { repo, bare } = makeRepo("live", "iso-live");
+    const wt = dirtyOrphan(repo, "feature/live", "live");
+    writePolicy([CLASS_IDS.dirtyWorktree]);
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { cwd: wt, stdio: "ignore" });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const r = runMain(["--apply"], { sweepOpts: { roots: [{ kind: "code", path: path.join(CODE, "iso-live") }] }, now: Date.now() + 2 * DAY });
+      assert.match(r.out, /keep: .*live.* - a process holds this directory/);
+      assert.ok(fs.existsSync(wt));
+      assert.deepEqual(originRefs(bare), ["refs/heads/main"]);
+    } finally {
+      child.kill();
+      clearPolicy();
+    }
+  });
+
+  test("the record carries what the sweep did, and a failed sweep act makes an --apply run exit 1", () => {
+    const rec = path.join(HOME, uniq("sweep-record"));
+    const bad = makeRepo("recbad", "iso-rec");
+    rejectPushes(bad.bare);
+    dirtyOrphan(bad.repo, "feature/recbad", "recbad");
     writePolicy([CLASS_IDS.dirtyWorktree]);
     try {
-      const r = runMain(["--no-fetch", "--sweep", "--apply"]);
-      assert.doesNotMatch(r.out, /SWEEP/);
+      const r = runMain(["--apply", "--record", rec], { sweepOpts: { roots: [{ kind: "code", path: path.join(CODE, "iso-rec") }] }, now: Date.now() + 2 * DAY });
+      assert.equal(r.code, 1);
+      assert.match(r.out, /failed: .*recbad/);
+      const files = fs.readdirSync(rec).filter((n) => n.endsWith(".json"));
+      assert.equal(files.length, 1);
+      const record = JSON.parse(fs.readFileSync(path.join(rec, files[0]), "utf8"));
+      assert.equal(record.sweep.rows.length, 1);
+      assert.equal(record.sweep.rows[0].action, "failed");
     } finally {
       clearPolicy();
     }

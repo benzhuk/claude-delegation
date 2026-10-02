@@ -11,10 +11,10 @@ import { withoutRepoLocatingGitEnv } from "../skills/multi/scripts/transport.mjs
 
 const PUSH_TIMEOUT_MS = 60_000;
 
-function run(args, cwd, { timeout, network = false } = {}) {
+function run(args, cwd, { timeout, network = false, maxBuffer } = {}) {
   const env = withoutRepoLocatingGitEnv(process.env);
   if (network) Object.assign(env, { GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" });
-  return execFileSync("git", args, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout });
+  return execFileSync("git", args, { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout, maxBuffer });
 }
 
 function tryRun(args, cwd, opts) {
@@ -61,6 +61,17 @@ function hasOrigin(cwd) {
   return r.ok && r.out.trim() !== "";
 }
 
+/** Origin remotes that belong to BTO ("leave BTO to BTO"); matched as case-insensitive substrings of the origin URL with backslash read as slash. */
+export const DEFAULT_EXCLUDE_REMOTES = Object.freeze(["github.com/nucleusfilms/", "github.com:nucleusfilms/", "/bto-", "/bto_"]);
+
+/** The pattern of `excludeRemotes` that `cwd`'s origin URL matches, or null. */
+export function matchedExcludedRemote(cwd, excludeRemotes = DEFAULT_EXCLUDE_REMOTES) {
+  const r = tryRun(["remote", "get-url", "origin"], cwd);
+  if (!r.ok) return null;
+  const url = r.out.trim().replaceAll("\\", "/").toLowerCase();
+  return excludeRemotes.find((p) => url.includes(String(p).replaceAll("\\", "/").toLowerCase())) ?? null;
+}
+
 /** Pushes `refs/heads/<localRef>` to `refs/heads/<archiveRef>` on origin (never forced) and proves it landed. */
 function pushArchive(cwd, localRef, archiveRef, sha) {
   assertArchiveRef(archiveRef);
@@ -78,34 +89,52 @@ function pushArchive(cwd, localRef, archiveRef, sha) {
  * IGNORED content exists (autonomy 4: it would be lost on removal and is not archived).
  * @returns {{ ok: boolean, ref?: string, sha?: string, skipped?: string, error?: string }}
  */
-export function archiveCheckout({ dir, name }) {
+export function archiveCheckout({ dir, name, excludeRemotes = DEFAULT_EXCLUDE_REMOTES }) {
   if (!hasIdentity(dir)) return { ok: false, skipped: "no git identity resolves here (never set one)" };
   const counts = statusCounts(dir);
   if (!counts) return { ok: false, error: "git status failed" };
   if (counts.ignored > 0) return { ok: false, skipped: `${counts.ignored} ignored path(s) would be lost; not archived` };
+  // Edits that `git status` never shows (--skip-worktree, --assume-unchanged) would be lost on removal.
+  const flags = tryRun(["ls-files", "-v"], dir, { maxBuffer: 256 * 1024 * 1024 });
+  if (!flags.ok) return { ok: false, error: "ls-files -v failed" };
+  const hidden = flags.out.split("\n").filter((l) => /^(S|[a-z]) /.test(l)).length;
+  if (hidden > 0) return { ok: false, skipped: `${hidden} skip-worktree/assume-unchanged path(s) hide edits from git status; not archived` };
   if (!hasOrigin(dir)) return { ok: false, skipped: "no origin remote to push the archive to" };
+  const bto = matchedExcludedRemote(dir, excludeRemotes);
+  if (bto) return { ok: false, skipped: `excluded (origin matches ${bto})` };
+  // Remember where HEAD was so ANY failure after the detach can put it back (nothing is discarded).
+  const origHeadR = tryRun(["rev-parse", "HEAD"], dir);
+  if (!origHeadR.ok) return { ok: false, error: "rev-parse HEAD failed" };
+  const origHead = origHeadR.out.trim();
+  const origBranch = tryRun(["symbolic-ref", "-q", "--short", "HEAD"], dir);
+  const branchName = origBranch.ok ? origBranch.out.trim() : "";
   const detach = tryRun(["checkout", "--detach"], dir);
   if (!detach.ok) return { ok: false, error: `detach failed: ${detach.error}` };
+  /** Re-attach HEAD to where it was; the archived content stays in the tree and index, so the row recurs. */
+  const fail = (result) => {
+    const back = branchName ? tryRun(["symbolic-ref", "HEAD", `refs/heads/${branchName}`], dir) : tryRun(["update-ref", "--no-deref", "HEAD", origHead], dir);
+    return back.ok ? result : { ...result, error: `${result.error}; HEAD could not be re-attached: ${back.error}` };
+  };
   if (counts.dirty > 0) {
     const add = tryRun(["add", "-A"], dir);
-    if (!add.ok) return { ok: false, error: `add failed: ${add.error}` };
+    if (!add.ok) return fail({ ok: false, error: `add failed: ${add.error}` });
     const commit = tryRun(["commit", "-q", "-m", `archive: ${name} (janitor)`], dir);
-    if (!commit.ok) return { ok: false, error: `commit failed: ${commit.error}` };
+    if (!commit.ok) return fail({ ok: false, error: `commit failed: ${commit.error}` });
   }
   const head = tryRun(["rev-parse", "HEAD"], dir);
-  if (!head.ok) return { ok: false, error: "rev-parse HEAD failed" };
+  if (!head.ok) return fail({ ok: false, error: "rev-parse HEAD failed" });
   const sha = head.out.trim();
   const ref = archiveRefName(name, sha);
   const branch = tryRun(["branch", "-f", ref, sha], dir);
-  if (!branch.ok) return { ok: false, error: `branch failed: ${branch.error}` };
+  if (!branch.ok) return fail({ ok: false, error: `branch failed: ${branch.error}` });
   const pushed = pushArchive(dir, ref, ref, sha);
-  if (!pushed.ok) return { ok: false, error: pushed.error, ref, sha };
+  if (!pushed.ok) return fail({ ok: false, error: pushed.error, ref, sha });
   return { ok: true, ref, sha };
 }
 
 /** archiveCheckout, then a plain (never forced) `git worktree remove` run from `repoRoot`. */
-export function archiveThenRemoveWorktree({ repoRoot, wtPath, name }) {
-  const archived = archiveCheckout({ dir: wtPath, name });
+export function archiveThenRemoveWorktree({ repoRoot, wtPath, name, excludeRemotes }) {
+  const archived = archiveCheckout({ dir: wtPath, name, excludeRemotes });
   if (!archived.ok) return archived;
   const rm = tryRun(["worktree", "remove", wtPath], repoRoot);
   if (!rm.ok) return { ...archived, ok: false, error: `archived as ${archived.ref}; worktree remove refused: ${rm.error}` };
@@ -113,10 +142,12 @@ export function archiveThenRemoveWorktree({ repoRoot, wtPath, name }) {
 }
 
 /** Pushes a local-only unmerged branch as `archive/<branch>-<shortsha>`, then (proof in hand) deletes it locally. */
-export function archiveThenDeleteBranch({ repoRoot, branch }) {
+export function archiveThenDeleteBranch({ repoRoot, branch, excludeRemotes = DEFAULT_EXCLUDE_REMOTES }) {
   const tip = tryRun(["rev-parse", "--verify", `refs/heads/${branch}`], repoRoot);
   if (!tip.ok) return { ok: false, error: "branch not found" };
   if (!hasOrigin(repoRoot)) return { ok: false, skipped: "no origin remote to push the archive to" };
+  const bto = matchedExcludedRemote(repoRoot, excludeRemotes);
+  if (bto) return { ok: false, skipped: `excluded (origin matches ${bto})` };
   const sha = tip.out.trim();
   const ref = archiveRefName(branch, sha);
   const pushed = pushArchive(repoRoot, branch, ref, sha);
