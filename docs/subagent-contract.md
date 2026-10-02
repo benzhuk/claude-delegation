@@ -16,9 +16,11 @@ subagents inherit none of it by default.
   `report-t1.md`.
 - **The report's first line carries the verdict**, so a `head -3` recovers it even when
   the reply loses it (see below). Two kinds of report, two first lines:
-  - A **reviewer, integrator or seam** report keeps `VERDICT: <word>` on line 1; accept and
-    the evidence check read exactly that (`scripts/work-record.mjs`).
-  - A **progress** report (a runner, a lead, anything long-running) opens with its state:
+  - A **reviewer, integrator, seam, builder or suite/census runner** report (every build-loop
+    worker, and anything that can be listed as `Evidence:`) keeps `VERDICT: <word>` on line 1;
+    accept and the evidence check read exactly that (`scripts/work-record.mjs`).
+  - A **progress** report (a status report on a long-running thing: a lead's or a goal's
+    progress, never an `Evidence:` file) opens with its state:
     `DONE`, `NEEDS BEN: <one line>`, `NEEDS <peer slug>: <one line>` or
     `FAILED: <why>`, the line ending `(<n> of <m> steps done)`. `PARTIAL` is refused: a goal
     sits in it for weeks and says nothing. Line 2, for anything not DONE, is

@@ -32,7 +32,7 @@ export const GATE_STATUS_WORDS = [...LANE_STATUS_WORDS, "reviewed"];
 const LANE_PEER_RE = /^NEEDS [a-z0-9][a-z0-9-]{0,63}$/;
 export function isLaneStatusWord(status) {
   return typeof status === "string"
-    && (["open", "FAILED", "NEEDS BEN", "accepted", "closed"].includes(status) || LANE_PEER_RE.test(status));
+    && (["open", "FAILED", "NEEDS BEN", "accepted", "closed"].includes(status) || (LANE_PEER_RE.test(status) && status !== "NEEDS ben"));
 }
 export function isKnownStatus(status) {
   return STATUSES.includes(status) || isLaneStatusWord(status);

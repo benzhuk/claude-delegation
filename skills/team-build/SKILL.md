@@ -146,8 +146,8 @@ mention says where to find it once mirrored.
   require: `Cause:`, `Discriminating check:`, `Fix location:`, `Simplification:` — name
   them explicitly, since a builder who is never asked for them has no reason to supply
   them and the gate then fails on fields nobody requested. Verdict still comes first.
-  First-line rule: a reviewer, integrator or seam report opens `VERDICT: <word>`; a progress report
-  (a runner or anything long-running) opens `DONE`, `NEEDS BEN: ...`, `NEEDS <peer slug>: ...` or
+  First-line rule: a reviewer, integrator, seam, builder or suite/census runner report (every build-loop worker, and anything that can be listed as `Evidence:`) opens `VERDICT: <word>`; a progress report
+  (a status report on a long-running thing: a lead's or a goal's progress, never an `Evidence:` file) opens `DONE`, `NEEDS BEN: ...`, `NEEDS <peer slug>: ...` or
   `FAILED: ...` ending `(<n> of <m> steps done)`, with `Now: ... | To finish: ... | Est: ...` on line 2
   (`node scripts/report-check.mjs <report>`); `PARTIAL` is refused.
 - Risky work authored at high tier receives top-tier adjudication. This adds scrutiny

@@ -54,6 +54,24 @@ test('waiting item with only two of the three fields is refused', () => {
   );
 });
 
+test('waiting file with two items: the second item without the line is refused at its own line', () => {
+  const one = read('waiting-with-line.md');
+  const second = read('waiting-without-line.md');
+  const head = one.trimEnd();
+  const headLines = head.split('\n').length;
+  // The second item's title sits on line headLines + 2; the refusal names the line under it.
+  assert.throws(
+    () => checkWaitingProgressLine(`${head}\n${second}`, 'waiting/a.md'),
+    (e) => e instanceof RefusedError && e.message.startsWith(`waiting/a.md:${headLines + 3} lacks the line directly under the title`),
+  );
+  assert.doesNotThrow(() => checkWaitingProgressLine(`${head}\n${one}`, 'waiting/a.md'));
+});
+
+test('a pipe inside Now or To finish is not a three-field line', () => {
+  assert.equal(isProgressLine('Now: a | b | To finish: c | Est: d'), false);
+  assert.equal(isProgressLine('Now: a | To finish: b | c | Est: d'), false);
+});
+
 test('waiting item progress line over 200 characters is refused', () => {
   const long = read('waiting-with-line.md').replace('queue outgrew memory twice', 'x'.repeat(200));
   assert.throws(() => checkWaitingProgressLine(long, 'waiting/a.md'), (e) => /more than the required 200/.test(e.message));

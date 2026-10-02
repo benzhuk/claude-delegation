@@ -47,7 +47,7 @@ function accept(text) {
 test("status words: the lane set is open, NEEDS BEN, NEEDS <peer>, FAILED, accepted, closed", () => {
   assert.deepEqual(LANE_STATUS_WORDS, ["open", "NEEDS BEN", "NEEDS <peer slug>", "FAILED", "accepted", "closed"]);
   for (const ok of ["open", "NEEDS BEN", "NEEDS skills-o", "FAILED", "accepted", "closed"]) assert.equal(isLaneStatusWord(ok), true, ok);
-  for (const bad of ["PARTIAL", "NEEDS", "NEEDS Ben", "NEEDS ben ", "needs BEN", "open ", "reviewed", "owned"]) assert.equal(isLaneStatusWord(bad), false, bad);
+  for (const bad of ["PARTIAL", "NEEDS", "NEEDS Ben", "NEEDS ben", "NEEDS ben ", "needs BEN", "open ", "reviewed", "owned"]) assert.equal(isLaneStatusWord(bad), false, bad);
 });
 
 test("status words: old words stay readable and the new words are not bad-status", () => {

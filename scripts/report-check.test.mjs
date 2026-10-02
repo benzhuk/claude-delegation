@@ -49,6 +49,17 @@ test("report-check: line 2 with a field absent or empty is refused", () => {
   assert.equal(checkReport(`${base}Now: a | To finish: b | Est: 1 day`).ok, true);
 });
 
+test("report-check: line 2 names which field is missing, and a pipe inside Now or To finish is refused", () => {
+  const base = "FAILED: x (1 of 2 steps done)\n";
+  const errs = (text) => checkReport(text).errors.join("\n");
+  assert.match(errs(`${base}Now: a | To finish: b`), /line 2 lacks Est:/);
+  assert.match(errs(`${base}Now: a | Est: 1 day`), /line 2 lacks To finish:/);
+  assert.match(errs(`${base}To finish: b | Est: 1 day`), /line 2 lacks Now:/);
+  assert.match(errs(`${base}Now: a | To finish: b | Est:`), /line 2 must be exactly/);
+  assert.equal(checkReport(`${base}Now: a | b | To finish: c | Est: d`).ok, false);
+  assert.equal(checkReport(`${base}Now: a | To finish: b | c | Est: d`).ok, false);
+});
+
 test("report-check: a first line without the steps phrase is refused", () => {
   const r = runCli(fixture("report-no-steps.md"));
   assert.equal(r.status, 1);
@@ -108,7 +119,7 @@ test("item 5: team-build and delegate briefs state the first-line rule exactly o
   for (const rel of ["skills/team-build/SKILL.md", "skills/delegate/SKILL.md"]) {
     const text = fs.readFileSync(path.join(HERE, "..", rel), "utf8");
     assert.equal(text.split("First-line rule:").length - 1, 1, rel);
-    assert.match(text, /First-line rule: a reviewer, integrator or seam report opens `VERDICT: <word>`;/, rel);
+    assert.match(text, /First-line rule: a reviewer, integrator, seam, builder or suite\/census runner report \(every build-loop worker, and anything that can be listed as `Evidence:`\) opens `VERDICT: <word>`;/, rel);
     assert.match(text, /`PARTIAL` is refused\./, rel);
   }
 });
@@ -124,5 +135,5 @@ test("contract: docs/subagent-contract.md names both first-line kinds and the ch
   const text = fs.readFileSync(path.join(HERE, "..", "docs", "subagent-contract.md"), "utf8");
   assert.match(text, /`PARTIAL` is refused/);
   assert.equal(text.split("node scripts/report-check.mjs <report>").length - 1, 1);
-  assert.match(text, /reviewer, integrator or seam\*\* report keeps `VERDICT: <word>`/);
+  assert.match(text, /reviewer, integrator, seam, builder or suite\/census runner\*\* report/);
 });

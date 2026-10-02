@@ -482,7 +482,7 @@ const PROGRESS_SHAPE = 'Now: <one line> | To finish: <one line> | Est: <duration
 /** True when `line` is exactly the three-field line, all three non-empty, no extra field. */
 export function isProgressLine(line) {
   const m = PROGRESS_LINE_RE.exec(String(line).trim());
-  return Boolean(m) && m[1].trim() !== '' && m[2].trim() !== '' && m[3].trim() !== '' && !m[3].includes('|');
+  return Boolean(m) && m[1].trim() !== '' && m[2].trim() !== '' && m[3].trim() !== '' && !m[1].includes('|') && !m[2].includes('|') && !m[3].includes('|');
 }
 
 /** A waiting item shows the three fields as one short line directly under its title: the line
@@ -491,19 +491,22 @@ export function isProgressLine(line) {
  * verbatim (checkProseLines and checkAutolinkLines still see it). */
 export function checkWaitingProgressLine(text, label) {
   const lines = String(text).replace(/\r\n/g, '\n').split('\n');
-  const summaryIdx = lines.findIndex((l) => /<summary>/.test(l));
-  if (summaryIdx === -1) return; // not a toggle item; checkWaitingItem already refuses what it cannot read
-  const next = lines[summaryIdx + 1] ?? '';
-  const bare = next.replace(/^\t+/, '');
-  if (!/^\t+Now:/.test(next)) {
-    throw new RefusedError(`${label}:${summaryIdx + 2} lacks the line directly under the title: \`${PROGRESS_SHAPE}\``);
-  }
-  if (!isProgressLine(bare)) {
-    throw new RefusedError(`${label}:${summaryIdx + 2} is not exactly \`${PROGRESS_SHAPE}\` with all three fields non-empty`);
-  }
-  if (bare.length > PROGRESS_LINE_MAX_CHARS) {
-    throw new RefusedError(`${label}:${summaryIdx + 2} is ${bare.length} characters, more than the required ${PROGRESS_LINE_MAX_CHARS} for the progress line`);
-  }
+  // Every <summary> in the file is an item title; a file with no toggle item is left to
+  // checkWaitingItem, which refuses what it cannot read.
+  lines.forEach((line, summaryIdx) => {
+    if (!/<summary>/.test(line)) return;
+    const next = lines[summaryIdx + 1] ?? '';
+    const bare = next.replace(/^\t+/, '');
+    if (!/^\t+Now:/.test(next)) {
+      throw new RefusedError(`${label}:${summaryIdx + 2} lacks the line directly under the title: \`${PROGRESS_SHAPE}\``);
+    }
+    if (!isProgressLine(bare)) {
+      throw new RefusedError(`${label}:${summaryIdx + 2} is not exactly \`${PROGRESS_SHAPE}\` with all three fields non-empty`);
+    }
+    if (bare.length > PROGRESS_LINE_MAX_CHARS) {
+      throw new RefusedError(`${label}:${summaryIdx + 2} is ${bare.length} characters, more than the required ${PROGRESS_LINE_MAX_CHARS} for the progress line`);
+    }
+  });
 }
 
 /** A session bullet that says it is in progress carries the three fields. The 200-character

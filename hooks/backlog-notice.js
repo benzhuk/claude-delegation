@@ -214,7 +214,7 @@ function idsList(ids) {
  * too (work-record.mjs's `runnable-with-owner`, L-C6) — it is not what it claims to be, so it is not
  * pushed into `runnable` either.
  */
-function classify(entries, statuses) {
+function classify(entries, statuses, isKnown) {
   const runnable = [];
   const delivered = [];
   const rejected = [];
@@ -223,7 +223,7 @@ function classify(entries, statuses) {
     const status = record && record.fields && record.fields.status;
     const work = record && record.fields && record.fields.work;
     const owner = record && record.fields && record.fields.owner;
-    if (!status || !work || !statuses.includes(status)) {
+    if (!status || !work || !(statuses.includes(status) || (typeof isKnown === 'function' && isKnown(status)))) {
       malformed += 1;
       continue;
     }
@@ -306,10 +306,12 @@ async function main() {
 
   let entries = [];
   let statuses;
+  let isKnown;
   let duplicates = [];
   try {
     const parser = await import(pathToFileURL(PARSER_PATH).href);
     statuses = parser.STATUSES;
+    isKnown = parser.isKnownStatus;
     entries = parser.listRecords(workDir, { fsImpl: fs });
     duplicates = parser.checkRecordSet(entries);
   } catch (err) {
@@ -317,7 +319,7 @@ async function main() {
     return;
   }
 
-  const { runnable, delivered, rejected, malformed } = classify(entries, statuses);
+  const { runnable, delivered, rejected, malformed } = classify(entries, statuses, isKnown);
   if (malformed > 0) {
     process.stderr.write(`backlog-notice: skipped ${malformed} malformed record(s) in ${workDir}\n`);
   }

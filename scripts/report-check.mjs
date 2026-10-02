@@ -39,7 +39,7 @@ export function parseProgressLine(line) {
   const m = /^[ \t]{0,20}Now:[ \t]{0,20}(.{1,400}?)[ \t]{1,20}\|[ \t]{1,20}To finish:[ \t]{0,20}(.{1,400}?)[ \t]{1,20}\|[ \t]{1,20}Est:[ \t]{0,20}(.{1,200}?)[ \t]{0,20}$/.exec(String(line ?? ""));
   if (!m) return null;
   const [now, toFinish, est] = [m[1].trim(), m[2].trim(), m[3].trim()];
-  if (!now || !toFinish || !est || /\|/.test(est)) return null;
+  if (!now || !toFinish || !est || /\|/.test(now) || /\|/.test(toFinish) || /\|/.test(est)) return null;
   return { now, toFinish, est };
 }
 
@@ -112,7 +112,10 @@ export function checkReport(text) {
     if (!second.trim()) {
       errors.push("line 2 is missing: expected `Now: <one line> | To finish: <one line> | Est: <duration>`");
     } else if (!parseProgressLine(second)) {
-      errors.push("line 2 must be exactly `Now: <one line> | To finish: <one line> | Est: <duration>` with all three non-empty");
+      const absent = ["Now:", "To finish:", "Est:"].filter((label) => !second.includes(label));
+      errors.push(absent.length > 0
+        ? `line 2 lacks ${absent.join(", ")}: expected \`Now: <one line> | To finish: <one line> | Est: <duration>\``
+        : "line 2 must be exactly `Now: <one line> | To finish: <one line> | Est: <duration>` with all three non-empty");
     }
   }
   return { ok: errors.length === 0, state: first.state, errors };
