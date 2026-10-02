@@ -1,0 +1,95 @@
+✔ clean and in sync: preflight fetches, changes nothing, and the run proceeds to a verified publication (2162.5752ms)
+ℹ job git calls (clean): [["symbolic-ref","--short","HEAD"],["status","--porcelain","--untracked-files=no"],["fetch","--no-tags","--no-prune","origin"],["rev-list","--count","origin/main..HEAD"],["rev-list","--count","HEAD..origin/main"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["log","--format=%H","512f4439855eb6553f1344aa27eef9124edc0503..HEAD","--","source-inbox/_archive/DIGEST.md"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"]]
+✔ origin ahead: fast-forwards first, dotfilesBefore is the new HEAD, and a pulled-in DIGEST commit is not this run's (2575.7343ms)
+ℹ job git calls (origin ahead): [["symbolic-ref","--short","HEAD"],["status","--porcelain","--untracked-files=no"],["fetch","--no-tags","--no-prune","origin"],["rev-list","--count","origin/main..HEAD"],["rev-list","--count","HEAD..origin/main"],["merge","--ff-only","origin/main"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["log","--format=%H","8477269a78b73dc2d47003e69d51093beedc5e42..HEAD","--","source-inbox/_archive/DIGEST.md"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"]]
+✔ dirty tracked file: ATTENTION before any fetch, gather or nested spawn; the change and the inbox are untouched (834.5039ms)
+ℹ ATTENTION packet (dirty before start):
+2026-09-29T18:00:00.000Z
+dirty before start: C:\Users\benzh\AppData\Local\Temp\sealed-home-8QFGYf\fixtures\dotfiles has 1 tracked change(s) on main (M README.md); nothing was gathered or run
+State: dirty before start. Repo found: C:\Users\benzh\AppData\Local\Temp\sealed-home-8QFGYf\fixtures\dotfiles. The job stopped before it touched the knowledge store; there is nothing of its own to recover.
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-8QFGYf\fixtures\dotfiles status --short
+Ben commits or discards those tracked changes by hand (the job never does). When that is done, remove ATTENTION with the last command of this packet.
+Ben inspects and recovers this; never an agent. Only if you inspected a STALE curated lock (no triage process running, owner.txt confirms):
+  rmdir ~/.claude/knowledge/.curated-update.lock
+Then, once the cause is fixed:
+  rm ~/.agents/knowledge-triage/ATTENTION
+
+✔ untracked files alone do not stop the run (dirty means tracked changes only) (2428.2099ms)
+✔ diverged before start: local and origin each have a commit; ATTENTION before the knowledge store is touched (1435.8559ms)
+ℹ ATTENTION packet (diverged before start):
+2026-09-29T18:00:00.000Z
+diverged before start: main in C:\Users\benzh\AppData\Local\Temp\sealed-home-OuuEHH\fixtures\dotfiles has 1 local commit(s) origin lacks and 1 origin commit(s) the local lacks; nothing was gathered or run
+State: diverged before start. Repo found: C:\Users\benzh\AppData\Local\Temp\sealed-home-OuuEHH\fixtures\dotfiles. The job stopped before it touched the knowledge store.
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-OuuEHH\fixtures\dotfiles fetch origin
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-OuuEHH\fixtures\dotfiles log --oneline origin/main..HEAD
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-OuuEHH\fixtures\dotfiles rebase origin/main
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-OuuEHH\fixtures\dotfiles push origin HEAD:main
+Read the log first: those are the commits origin lacks. When that is done, remove ATTENTION with the last command of this packet.
+Ben inspects and recovers this; never an agent. Only if you inspected a STALE curated lock (no triage process running, owner.txt confirms):
+  rmdir ~/.claude/knowledge/.curated-update.lock
+Then, once the cause is fixed:
+  rm ~/.agents/knowledge-triage/ATTENTION
+
+✔ ahead only (leftover unpublished work of an earlier run) is also a stop, with nothing to fast-forward (1046.572ms)
+✔ push race: origin gains a commit during the run; one rebase and one plain push repair it, history stays linear (3458.3736ms)
+ℹ job git calls (push race repaired): [["symbolic-ref","--short","HEAD"],["status","--porcelain","--untracked-files=no"],["fetch","--no-tags","--no-prune","origin"],["rev-list","--count","origin/main..HEAD"],["rev-list","--count","HEAD..origin/main"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["status","--porcelain","--untracked-files=no"],["fetch","--no-tags","--no-prune","origin"],["symbolic-ref","--short","HEAD"],["rev-list","origin/main..HEAD"],["rev-list","82b3660cbd133b161ea26a9102e2311be17eff05..HEAD"],["rev-parse","origin/main"],["rebase","origin/main"],["push","origin","HEAD:main"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["log","--format=%H","1ca52c0e673f116511fad948ca3461e15f3c6f81..HEAD","--","source-inbox/_archive/DIGEST.md"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"]]
+✔ rebase conflict: the same DIGEST tail edited on both sides; rebase is aborted, the tree is clean, ATTENTION names the state (2892.6301ms)
+ℹ job git calls (rebase conflict): [["symbolic-ref","--short","HEAD"],["status","--porcelain","--untracked-files=no"],["fetch","--no-tags","--no-prune","origin"],["rev-list","--count","origin/main..HEAD"],["rev-list","--count","HEAD..origin/main"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["status","--porcelain","--untracked-files=no"],["fetch","--no-tags","--no-prune","origin"],["symbolic-ref","--short","HEAD"],["rev-list","origin/main..HEAD"],["rev-list","9f1af46d0249accd6bd2963a02014468268069c9..HEAD"],["rev-parse","origin/main"],["rebase","origin/main"],["rebase","--abort"]]
+ℹ ATTENTION packet (conflict on rebase):
+2026-09-29T18:00:00.000Z
+conflict on rebase: git rebase origin/main in C:\Users\benzh\AppData\Local\Temp\sealed-home-3PGAcj\fixtures\dotfiles: Auto-merging source-inbox/_archive/DIGEST.md CONFLICT (content): Merge conflict in source-inbox/_archive/DIGEST.md Rebasing (1/1) error: could not apply 5ccf6be... triage: archive notes hint: Resolve all conflicts manually, mark them as resolved with hint: "git add/rm <conflicted_files>", then run "; rebase aborted, tree restored
+State: conflict on rebase. Repo found: C:\Users\benzh\AppData\Local\Temp\sealed-home-3PGAcj\fixtures\dotfiles. The job tried one rebase of its single commit onto origin/main; on a conflict it runs rebase --abort, so the commit is still in the local branch and nothing was pushed.
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-3PGAcj\fixtures\dotfiles status
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-3PGAcj\fixtures\dotfiles fetch origin
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-3PGAcj\fixtures\dotfiles rebase origin/main
+That rebase stops at the same conflict. Resolve the files by hand, then:
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-3PGAcj\fixtures\dotfiles add -u
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-3PGAcj\fixtures\dotfiles rebase --continue
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-3PGAcj\fixtures\dotfiles push origin HEAD:main
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-3PGAcj\fixtures\dotfiles status -sb
+Verify the branch line shows no ahead or behind. If the status shows a rebase still open (the packet line above says when the abort failed) and you would rather start over, run this first:
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-3PGAcj\fixtures\dotfiles rebase --abort
+When that is done, remove ATTENTION with the last command of this packet.
+Ben inspects and recovers this; never an agent. Only if you inspected a STALE curated lock (no triage process running, owner.txt confirms):
+  rmdir ~/.claude/knowledge/.curated-update.lock
+Then, once the cause is fixed:
+  rm ~/.agents/knowledge-triage/ATTENTION
+
+✔ race commit touching DIGEST from another host is not this run's digest commit: ATTENTION, not success (3189.0147ms)
+✔ two own commits ahead: the repair is not attempted, no rebase, no push, the remote is unchanged (2504.0549ms)
+✔ second push rejection: exactly one rebase, one push, then ATTENTION; no second rebase (2613.5702ms)
+✔ a fetch failure and a detached HEAD are ATTENTION naming the cause, never a skip, before anything runs (1236.6153ms)
+✔ recoveryBlock quotes a repo path with spaces and returns nothing for an unknown state (0.2617ms)
+✔ kill switches, nonwriter, missing skill, and pending Mac report honest skip reasons (62.8306ms)
+✔ existing ATTENTION and unavailable Claude CLI are explicit skips with no false success (44.5586ms)
+✔ notification uses the installed Node sender, an envelope-safe summary, and a full ATTENTION packet (1346.9954ms)
+✔ notification or ATTENTION write failure is visible in the returned reason and packet (39.4434ms)
+✔ managed discovery failure skips before gather or nested spawn and names the cause (302.7611ms)
+✔ chezmoi-source inbox names are managed residue and cannot enter selection (823.9584ms)
+✔ oversize and unsupported-name gather residue are named and never reach Claude selection (869.7818ms)
+✔ selection is the deterministic oldest union capped at 60 and prompt pins exact slugs (1383.9325ms)
+✔ two skill deferrals escalate, while unavailable usage is never invented as zero (1741.2711ms)
+✔ successful run requires committed digest identity and a fresh matching remote ref (1030.882ms)
+✔ changed DIGEST cannot report success for unchanged HEAD, unrelated HEAD, or remote mismatch (2537.7568ms)
+✔ no-change remote mismatch defers reconciliation without ATTENTION (968.1225ms)
+✔ out-of-selection archive is ATTENTION and blocks origin reconciliation (1339.9167ms)
+✔ nested nonzero is failed, and the job-local lock rejects a concurrent run (1392.8099ms)
+✔ a live PID with an owner timestamp older than three hours is ATTENTION and never auto-removed (45.0217ms)
+✔ full receipt reports one superseded terminal and keeps first deferral as skipped with evidence (1106.0525ms)
+✔ full receipt preserves gather-phase collision names and unresolved host totals (991.9744ms)
+✔ real watchdog kills the owned child and grandchild and records timeout ATTENTION (1145.771ms)
+✔ two consecutive curated-lock observations escalate without taking or clearing the lock (35.9406ms)
+✔ archived note without its exact committed digest slug remains named residue (962.7559ms)
+✔ lane 71: a dirty tracked tree stops before the fetch, the gather and the nested run, with the repo and commands in the packet (120.3783ms)
+✔ lane 71: preflight runs status, fetch, then the baseline reads, before the nested run (1050.9388ms)
+✔ lane 71: a fetch failure is ATTENTION naming the git error, never a skip (225.1592ms)
+✔ lane 71: a push race with one own commit is repaired by one rebase and one plain push (1525.8305ms)
+✔ lane 71: a rebase conflict is aborted and stops with ATTENTION naming the state and the commands (1122.0704ms)
+ℹ tests 38
+ℹ suites 0
+ℹ pass 38
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 26916.5706

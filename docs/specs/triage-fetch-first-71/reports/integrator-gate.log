@@ -1,0 +1,221 @@
+✔ byte-stability: every generator is a pure function of its inputs — called twice, identical bytes (1.528ms)
+✔ --apply never appears in the collect job's generated text, for any of the three schedulers (0.3408ms)
+✔ scheduledCommandArgv (janitor job) is exactly <node> <pluginRoot>/scripts/janitor.mjs --record --repo <repo> [--host <h>] --apply (0.5333ms)
+✔ C3/F15: the janitor job's default argv carries --apply; there is no --record-only installer flag to remove it, and the user-value --apply refusal still fires (20.4352ms)
+✔ installed.json is byte-stable and matches the pinned seam shape exactly (key order included) (0.1565ms)
+✔ resolveRepo: --repo overrides everything; else ~/.agents/janitor-repo if present; else the repo default (38.7012ms)
+✔ resolveRepo (lane 65 item 5): defaults to Code/zhuk-infra/claude-delegation when it exists, even if the old path also exists (4.9465ms)
+✔ resolveRepo (lane 65 item 5): falls back to the old Code/claude-delegation only when the new path is absent (1.1093ms)
+✔ resolveRepo (lane 65 item 5): the existence check is injectable, an unreadable path counts as absent, and the override file and --repo still win (0.2863ms)
+✔ refuses to install from a temporary/worktree checkout unless --force-root, and writes nothing when refused (26.6916ms)
+✔ L2: a plugin root inside the installed Claude plugin cache installs without --force-root (35.583ms)
+✔ L2 review: the allowlist itself rejects this host's real worktree layout and accepts only the two caches (1.0421ms)
+✔ L2: a real worktree name, a durable non-cache path, and a fresh non-cache root all refuse under --dry-run and a real install, on the pluginRoot check alone, nothing written (25.2533ms)
+✔ --force-root (tests only) bypasses the checkout-durability refusal (7.3071ms)
+✔ --remove is never gated by the checkout-durability check (only install creates a new reference) (1.0038ms)
+✔ a real install (fixture plugin root) writes the systemd unit+timer and installed.json, idempotently (43.0033ms)
+✔ --dry-run writes nothing at all, even the containing directory, but still reports the generated content (11.6107ms)
+✔ --remove --dry-run reports would-remove, never claiming a file was removed when it was not (44.1879ms)
+✔ --remove deletes only the files it made (marker-checked) and leaves a same-named foreign file alone (89.8813ms)
+✔ --remove on a host where nothing was ever installed reports absent, not an error (0.9589ms)
+✔ seam review round 1, M1: installed.json is name-owned — a second --name install is refused, and --remove for that name never touches a different name's installed.json (34.2385ms)
+✔ --hour sets the systemd OnCalendar hour and installed.json's hour field (30.841ms)
+✔ --hour out of range (or non-integer) refuses outright and writes nothing, rather than silently falling back (23.5205ms)
+✔ J1 review round 2, m2: a valueless --hour (nothing follows, or another --flag follows) refuses rather than silently falling back to the default hour (12.2714ms)
+✔ --enable runs the platform's own enable command through the injected exec, never spawning a real one — and is skipped entirely under --dry-run (25.2916ms)
+✔ J1 review round 2, m3: a failing post-remove daemon-reload is reported in result.commands, not swallowed silently (26.8468ms)
+✔ J1 review round 1, M1: a foreign (unmarked) same-named unit blocks --enable entirely, on both install and --remove — zero exec calls, the user's unit left alone (11.9522ms)
+✔ windows and macos generation (text-only; schtasks/launchctl are never executed on this host) (71.6259ms)
+✔ J1 review round 1, B1: --repo or --host carrying the literal string --apply is refused outright, nothing written (5.7405ms)
+✔ J1 review round 1, B1: an ordinary space-bearing repo (no --apply) still generates a single, correctly quoted ExecStart argv element (11.9927ms)
+✔ J1 review round 1, M5: refuses when the janitor script is missing, or the repo is not a git checkout — nothing written, exit 1 (6.5076ms)
+✔ L1: --help prints usage, exits 0, and writes nothing — even against the installer's own default (worktree) pluginRoot (0.8753ms)
+✔ L1: an unrecognized flag (--bogus) exits 2 and writes nothing (0.4451ms)
+✔ L1: a stray positional argument exits 2 and writes nothing (0.5453ms)
+✔ L1 review: a valueless/empty --repo/--host/--name, or a repeated value flag, refuses and touches nothing (64.4556ms)
+✔ C2: scheduledCommandArgv for --job collect-status is exactly <node> <pluginRoot>/scripts/collect-status.mjs --repo <repo> --to <slug>, plus --host and --out when given, plus --stale-hours <n> always last (lane 33 F1, default 2) (0.195ms)
+✔ C2: installedJsonText for --job collect-status is schema, repo, node, every, staleHours, scheduler, name, to — key order exact, no hour field at all (lane 33 F1) (0.0857ms)
+﹣ C2: systemd unit and timer text for --job collect-status — exact bytes (0.0285ms) # the systemd generator runs only on linux hosts, and these fixtures are POSIX paths
+✔ C2: Windows TimeTrigger/Repetition and launchd StartInterval shapes for --job collect-status, both carrying --stale-hours (lane 33 F1) (0.588ms)
+﹣ C2: --stale-hours 0.5 appears in the systemd ExecStart too (all three generators, lane 33 F1) (0.0338ms) # the systemd generator runs only on linux hosts, and these fixtures are POSIX paths
+✔ C2: --stale-hours bounds — 0.1 and 48 accepted, out of range or non-numeric refused (exit 1, nothing written), default is 2 (164.0072ms)
+✔ C2: --stale-hours 0.5 given to main reaches every platform's written command and installed.json (lane 33 F1) (100.1367ms)
+✔ C2: a real install (--job collect-status) writes to ~/.agents/collect/, never ~/.agents/janitor/, with installed.json matching the pinned K1 shape (198.3989ms)
+✔ C2: --every bounds — 5 and 60 accepted, out of range or non-integer refused, default is 15 (53.4775ms)
+✔ C2: --to is required for --job collect-status and refused for --job janitor-record; slug pattern enforced (11.3974ms)
+✔ C2: --hour is refused for --job collect-status; --every is refused for --job janitor-record (6.6784ms)
+✔ C2: --job with an unrecognized value is refused; --out is refused for --job janitor-record (6.8995ms)
+﹣ C2 review round 1, m2: --out is resolved to an absolute path (never left relative to the repo's own WorkingDirectory), and a control character (e.g. a real newline) is refused outright (0.0489ms) # the systemd generator runs only on linux hosts, and these fixtures are POSIX paths
+✔ C2 (contracts.md K3 B1 twin): --to or --out carrying the literal string --apply is refused outright, nothing written (7.2839ms)
+✔ C2 (seam, K1): installed.json records both jobs, each in its own name-owned file — installing collect-status never touches the janitor's installed.json and vice versa (37.6212ms)
+✔ C2 (seam, K3): --remove --job collect-status removes only the collect job's own files, leaving the janitor's timer/service/installed.json in place (27.1088ms)
+✔ C2 review round 1, M1: a collect-status install/remove sharing the janitor's own --name must never touch the janitor's units — each job gets its own marker (16.0251ms)
+✔ C2: --job collect-status refuses when collect-status.mjs is missing from the plugin root — job-scoped, distinct from the janitor's own missing-script message (3.0376ms)
+✔ C2 review round 2, N1: on Windows, --name reuse across jobs is refused before any write or exec (Task Scheduler's single task-name namespace) (53.1603ms)
+✔ Lane40: knowledge-triage command and XML pin disabled first run, interactive token, and PT2H (0.2203ms)
+✔ Lane40: the other two jobs keep their generated bytes after the third job is added (0.2938ms)
+✔ Lane40: Windows install registers disabled, queries, enables, then launches immediately (17.7403ms)
+✔ Lane40: --first-run refuses missing and invalid calendar dates before writes (28.7184ms)
+✔ Lane40: installer refuses a nonwriter with exit 2 before writes or scheduler calls (4.8614ms)
+✔ Lane40: removing triage leaves janitor and collect job artifacts byte-identical (41.7188ms)
+✔ C2 review round 2, N2: --remove --job collect-status without --to must not throw on darwin or win32 (launchdPlist argv coercion) (36.3151ms)
+✔ gathers only stable top-level notes, preserves bytes/mtime, and reports pending Mac separately (352.547ms)
+✔ one canonical import accounts for identical bytes across local and both remotes, and repeat gather is idempotent (474.5736ms)
+✔ null endpoint and pending Mac have distinct reasons and spawn no SSH child (23.23ms)
+✔ unresolved managed-name discovery fails standalone gather closed before SSH (323.3416ms)
+✔ unreachable configured remote is never reported as gathered success (60.6818ms)
+✔ real host deadline kills the fake SSH process tree and reports timeout (1310.7264ms)
+✔ overflow and timeout signal the owned child tree only once in either order (273.6436ms)
+✔ same origin name with changed bytes becomes a distinct version instead of clobbering the first import (3006.6393ms)
+✔ SSH uses the fixed hardening flags and forwards no caller secret, API key, or Git identity (148.2347ms)
+✔ production sshEnv starts native Windows OpenSSH and still excludes provider credentials (22.2727ms)
+✔ status-frontmatter mutation does not change original-byte identity during cross-month reconciliation (864.5826ms)
+✔ changed origin and conflicting archive are preserved and reported unresolved (974.8922ms)
+✔ interrupted and busy archive claims remain named unresolved evidence, never terminal missing (1113.5164ms)
+✔ changed claim restores to a free name or preserves claim plus a newly occupied live name (1456.8918ms)
+✔ atomic replacement during archive preserves the claimed original and the live replacement (791.7514ms)
+✔ origin missing and superseded versions become one-time terminal outcomes with staged evidence retained (1610.9759ms)
+✔ source plus matching archive is resurrected residue, never counted as archive success (773.7944ms)
+✔ accepts per-file PAX from GNU/libarchive producers while ignoring non-semantic metadata (86.0757ms)
+✔ parses actual GNU tar and libarchive pax streams, including a pax-only long path (261.6208ms)
+✔ rejects unsafe tar paths, links, global PAX, and malformed/truncated streams before import (380.9534ms)
+✔ POSIX backslash and drive-like names are named residue while a sibling valid note imports (149.6624ms)
+✔ skips a named oversize note but imports a later valid entry; entry-count exhaustion fails the host (206.0952ms)
+✔ Windows-invalid and case-only origin names cannot silently collide (105.2004ms)
+✔ clean and in sync: preflight fetches, changes nothing, and the run proceeds to a verified publication (6666.6331ms)
+ℹ job git calls (clean): [["symbolic-ref","--short","HEAD"],["status","--porcelain","--untracked-files=no"],["fetch","--no-tags","--no-prune","origin"],["rev-list","--count","origin/main..HEAD"],["rev-list","--count","HEAD..origin/main"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["log","--format=%H","73e891a8be77925e642480052db8818c41fe14f4..HEAD","--","source-inbox/_archive/DIGEST.md"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"]]
+✔ origin ahead: fast-forwards first, dotfilesBefore is the new HEAD, and a pulled-in DIGEST commit is not this run's (3268.7766ms)
+ℹ job git calls (origin ahead): [["symbolic-ref","--short","HEAD"],["status","--porcelain","--untracked-files=no"],["fetch","--no-tags","--no-prune","origin"],["rev-list","--count","origin/main..HEAD"],["rev-list","--count","HEAD..origin/main"],["merge","--ff-only","origin/main"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["log","--format=%H","64b2d520eda3404f6a97dd1d2cb7491b05413854..HEAD","--","source-inbox/_archive/DIGEST.md"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"]]
+✔ dirty tracked file: ATTENTION before any fetch, gather or nested spawn; the change and the inbox are untouched (1228.0179ms)
+ℹ ATTENTION packet (dirty before start):
+2026-09-29T18:00:00.000Z
+dirty before start: C:\Users\benzh\AppData\Local\Temp\sealed-home-f60cKY\fixtures\dotfiles has 1 tracked change(s) on main (M README.md); nothing was gathered or run
+State: dirty before start. Repo found: C:\Users\benzh\AppData\Local\Temp\sealed-home-f60cKY\fixtures\dotfiles. The job stopped before it touched the knowledge store; there is nothing of its own to recover.
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-f60cKY\fixtures\dotfiles status --short
+Ben commits or discards those tracked changes by hand (the job never does). When that is done, remove ATTENTION with the last command of this packet.
+Ben inspects and recovers this; never an agent. Only if you inspected a STALE curated lock (no triage process running, owner.txt confirms):
+  rmdir ~/.claude/knowledge/.curated-update.lock
+Then, once the cause is fixed:
+  rm ~/.agents/knowledge-triage/ATTENTION
+
+✔ untracked files alone do not stop the run (dirty means tracked changes only) (3257.3396ms)
+✔ diverged before start: local and origin each have a commit; ATTENTION before the knowledge store is touched (1609.42ms)
+ℹ ATTENTION packet (diverged before start):
+2026-09-29T18:00:00.000Z
+diverged before start: main in C:\Users\benzh\AppData\Local\Temp\sealed-home-ZzUW6W\fixtures\dotfiles has 1 local commit(s) origin lacks and 1 origin commit(s) the local lacks; nothing was gathered or run
+State: diverged before start. Repo found: C:\Users\benzh\AppData\Local\Temp\sealed-home-ZzUW6W\fixtures\dotfiles. The job stopped before it touched the knowledge store.
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-ZzUW6W\fixtures\dotfiles fetch origin
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-ZzUW6W\fixtures\dotfiles log --oneline origin/main..HEAD
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-ZzUW6W\fixtures\dotfiles rebase origin/main
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-ZzUW6W\fixtures\dotfiles push origin HEAD:main
+Read the log first: those are the commits origin lacks. When that is done, remove ATTENTION with the last command of this packet.
+Ben inspects and recovers this; never an agent. Only if you inspected a STALE curated lock (no triage process running, owner.txt confirms):
+  rmdir ~/.claude/knowledge/.curated-update.lock
+Then, once the cause is fixed:
+  rm ~/.agents/knowledge-triage/ATTENTION
+
+✔ ahead only (leftover unpublished work of an earlier run) is also a stop, with nothing to fast-forward (1268.125ms)
+✔ push race: origin gains a commit during the run; one rebase and one plain push repair it, history stays linear (4203.3068ms)
+ℹ job git calls (push race repaired): [["symbolic-ref","--short","HEAD"],["status","--porcelain","--untracked-files=no"],["fetch","--no-tags","--no-prune","origin"],["rev-list","--count","origin/main..HEAD"],["rev-list","--count","HEAD..origin/main"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["status","--porcelain","--untracked-files=no"],["fetch","--no-tags","--no-prune","origin"],["symbolic-ref","--short","HEAD"],["rev-list","origin/main..HEAD"],["rev-list","517b9f3b9a027ebca2ba706f4b0def159825e4a3..HEAD"],["rev-parse","origin/main"],["rebase","origin/main"],["push","origin","HEAD:main"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["log","--format=%H","f624ed93c5fa617080aa98708391aa550c68c7d3..HEAD","--","source-inbox/_archive/DIGEST.md"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"]]
+✔ rebase conflict: the same DIGEST tail edited on both sides; rebase is aborted, the tree is clean, ATTENTION names the state (3449.7094ms)
+ℹ job git calls (rebase conflict): [["symbolic-ref","--short","HEAD"],["status","--porcelain","--untracked-files=no"],["fetch","--no-tags","--no-prune","origin"],["rev-list","--count","origin/main..HEAD"],["rev-list","--count","HEAD..origin/main"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["rev-parse","HEAD"],["symbolic-ref","--short","HEAD"],["ls-remote","origin","refs/heads/main"],["show","HEAD:source-inbox/_archive/DIGEST.md"],["status","--porcelain","--untracked-files=no"],["fetch","--no-tags","--no-prune","origin"],["symbolic-ref","--short","HEAD"],["rev-list","origin/main..HEAD"],["rev-list","68a0e55e465995941a5cd1fa6bdb088d8e620047..HEAD"],["rev-parse","origin/main"],["rebase","origin/main"],["rebase","--abort"]]
+ℹ ATTENTION packet (conflict on rebase):
+2026-09-29T18:00:00.000Z
+conflict on rebase: git rebase origin/main in C:\Users\benzh\AppData\Local\Temp\sealed-home-9FMpi3\fixtures\dotfiles: Auto-merging source-inbox/_archive/DIGEST.md CONFLICT (content): Merge conflict in source-inbox/_archive/DIGEST.md Rebasing (1/1) error: could not apply 73071f0... triage: archive notes hint: Resolve all conflicts manually, mark them as resolved with hint: "git add/rm <conflicted_files>", then run "; rebase aborted, tree restored
+State: conflict on rebase. Repo found: C:\Users\benzh\AppData\Local\Temp\sealed-home-9FMpi3\fixtures\dotfiles. The job tried one rebase of its single commit onto origin/main; on a conflict it runs rebase --abort, so the commit is still in the local branch and nothing was pushed.
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-9FMpi3\fixtures\dotfiles status
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-9FMpi3\fixtures\dotfiles fetch origin
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-9FMpi3\fixtures\dotfiles rebase origin/main
+That rebase stops at the same conflict. Resolve the files by hand, then:
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-9FMpi3\fixtures\dotfiles add -u
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-9FMpi3\fixtures\dotfiles rebase --continue
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-9FMpi3\fixtures\dotfiles push origin HEAD:main
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-9FMpi3\fixtures\dotfiles status -sb
+Verify the branch line shows no ahead or behind. If the status shows a rebase still open (the packet line above says when the abort failed) and you would rather start over, run this first:
+  git -C C:\Users\benzh\AppData\Local\Temp\sealed-home-9FMpi3\fixtures\dotfiles rebase --abort
+When that is done, remove ATTENTION with the last command of this packet.
+Ben inspects and recovers this; never an agent. Only if you inspected a STALE curated lock (no triage process running, owner.txt confirms):
+  rmdir ~/.claude/knowledge/.curated-update.lock
+Then, once the cause is fixed:
+  rm ~/.agents/knowledge-triage/ATTENTION
+
+✔ race commit touching DIGEST from another host is not this run's digest commit: ATTENTION, not success (3615.3428ms)
+✔ two own commits ahead: the repair is not attempted, no rebase, no push, the remote is unchanged (2823.5554ms)
+✔ second push rejection: exactly one rebase, one push, then ATTENTION; no second rebase (3137.511ms)
+✔ a fetch failure and a detached HEAD are ATTENTION naming the cause, never a skip, before anything runs (1346.1132ms)
+✔ recoveryBlock quotes a repo path with spaces and returns nothing for an unknown state (0.2802ms)
+✔ kill switches, nonwriter, missing skill, and pending Mac report honest skip reasons (125.4534ms)
+✔ existing ATTENTION and unavailable Claude CLI are explicit skips with no false success (78.6598ms)
+✔ notification uses the installed Node sender, an envelope-safe summary, and a full ATTENTION packet (3711.0619ms)
+✔ notification or ATTENTION write failure is visible in the returned reason and packet (1830.1152ms)
+✔ managed discovery failure skips before gather or nested spawn and names the cause (379.8565ms)
+✔ chezmoi-source inbox names are managed residue and cannot enter selection (927.5536ms)
+✔ oversize and unsupported-name gather residue are named and never reach Claude selection (1039.2245ms)
+✔ selection is the deterministic oldest union capped at 60 and prompt pins exact slugs (2365.5165ms)
+✔ two skill deferrals escalate, while unavailable usage is never invented as zero (1882.485ms)
+✔ successful run requires committed digest identity and a fresh matching remote ref (1449.2701ms)
+✔ changed DIGEST cannot report success for unchanged HEAD, unrelated HEAD, or remote mismatch (2937.2254ms)
+✔ no-change remote mismatch defers reconciliation without ATTENTION (949.4014ms)
+✔ out-of-selection archive is ATTENTION and blocks origin reconciliation (1465.2425ms)
+✔ nested nonzero is failed, and the job-local lock rejects a concurrent run (1394.5174ms)
+✔ a live PID with an owner timestamp older than three hours is ATTENTION and never auto-removed (50.1508ms)
+✔ full receipt reports one superseded terminal and keeps first deferral as skipped with evidence (1363.1707ms)
+✔ full receipt preserves gather-phase collision names and unresolved host totals (1366.9889ms)
+✔ real watchdog kills the owned child and grandchild and records timeout ATTENTION (1179.1453ms)
+✔ two consecutive curated-lock observations escalate without taking or clearing the lock (116.4542ms)
+✔ archived note without its exact committed digest slug remains named residue (1121.0283ms)
+✔ lane 71: a dirty tracked tree stops before the fetch, the gather and the nested run, with the repo and commands in the packet (149.1337ms)
+✔ lane 71: preflight runs status, fetch, then the baseline reads, before the nested run (1068.5374ms)
+✔ lane 71: a fetch failure is ATTENTION naming the git error, never a skip (208.0205ms)
+✔ lane 71: a push race with one own commit is repaired by one rebase and one plain push (1628.6228ms)
+✔ lane 71: a rebase conflict is aborted and stops with ATTENTION naming the state and the commands (1171.8708ms)
+✔ V3: hooks.json parses, and every command goes through ${CLAUDE_PLUGIN_ROOT} (17.753ms)
+✔ V3: UserPromptSubmit injects the new notes and acks them (356.4877ms)
+✔ V3: Stop blocks with the notes as the reason, then never blocks on them again (286.0658ms)
+✔ V3: stop_hook_active short-circuits — a Stop hook must never loop (52.6783ms)
+✔ V3: PostToolUse is silent until the ledger changes, then injects once (125.9352ms)
+✔ V3: a session with no pane identity produces nothing at all (139.9649ms)
+✔ V3: an empty ledger, a missing notes dir and a corrupt cursor are all silent, exit 0 (521.1897ms)
+✔ V3: my own sends and other panes' notes are never injected (118.7289ms)
+✔ M1: a hook that cannot import its script exits 0 and SAYS SO once, never silently (358.2587ms)
+✔ M1: an unwritable cursor still surfaces the notes, with the problem named (2018.4685ms)
+✔ M1: a bad NOTE_SLUG is reported once instead of silencing the pane (670.456ms)
+✔ M1/M3: Stop never emits a config warning — a broken hook must not block a stop (668.5983ms)
+✔ M3: a missing packet is surfaced in the injected context, not just on stderr (521.4066ms)
+✔ L3: a Stop reason stays small — six notes, each truncated (180.1535ms)
+✔ L1: a stale pane-slug cache entry is not used — PostToolUse never acks the previous slug (139.2412ms)
+✔ V3: malformed stdin is not a crash (98.5757ms)
+✔ H4: a wedged orca cannot hold a prompt open — the hook returns inside its own budget (2560.8742ms)
+✔ H4: PostToolUse never pays for orca at all, wedged or not (90.1957ms)
+✔ D2: a session with a messaging socket registers its inbox, and prints no token (208.0314ms)
+✔ D2: a session with NOTHING waiting still registers - being reachable is the point (139.4378ms)
+✔ D2: Stop registers too, and a session without the env vars registers nothing (255.908ms)
+✔ C4: SessionStart registers and does nothing else - a session that starts idle is reachable (80.6929ms)
+✔ C6: no session_id in the payload means no registration at all (105.7908ms)
+✔ D2: a GUESSED slug never registers - that would send another session its notes (197.995ms)
+✔ S1: no hook child can register anything the fixture did not give it (575.8915ms)
+✔ N2: no test file in this suite inherits the runner environment on its own (1260.7892ms)
+✔ N2 scanner: findEnvLessSpawns flags a node-direct spawn with no env key, not one that has one (0.4088ms)
+✔ N2 scanner: a comment inside a call does not corrupt where it ends, or hide a real env key (F1) (0.2521ms)
+✔ N2 scanner: fork and a bare node string are node-direct too, and sh -c running process.execPath is in scope (F3, F6) (0.2123ms)
+✔ N2 scanner: an inheriting env value counts as no env, under any function name (F4) (0.2646ms)
+✔ N2 scanner: ambiguous one-hop resolution does not vouch for an env key (F7) (0.1802ms)
+✔ N2 scanner: a call starting inside a multi-line string still owns its own env key (R1) (0.1502ms)
+✔ N2 scanner: a malformed call extent fails loud, naming the site, instead of silently misreading a later call (R2) (0.2132ms)
+✔ N2 scanner: a bare node word only counts as a string literal argv element, never a comment or identifier (R3) (0.1068ms)
+✔ N2 scanner: an inheriting env value inside a composite expression is not silent - ||, ??, ternary, Object.assign, structuredClone (N1) (0.2646ms)
+✔ N2 scanner: a regex literal holding // or a quote does not desync the call extent, even when it re-closes within the tripwire limit (N2) (0.2682ms)
+✔ N2 scanner: a // inside a string must not strip a later node token from the node-reachability scan (N3) (0.1368ms)
+✔ N2 scanner: ownership is a character range, not a whole line, so a wrapper sharing a line with spawn-shaped string text is still caught (N4) (0.1152ms)
+✔ N2 scanner: the offender message names each hit's own reason, not a blanket "no env key" (N5) (0.1666ms)
+✔ N2 scanner: r4 - a regex after => or an operator, a nested template, or an env key below the options top level never passes silently (1.0386ms)
+✔ N2 scanner: exemption keys normalize backslash paths, and stay keyed by file (W1, F2) (0.1703ms)
+✔ childEnv strips the four repo-locating git names, even when the parent process has them set (0.8882ms)
+ℹ tests 164
+ℹ suites 0
+ℹ pass 161
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 3
+ℹ todo 0
+ℹ duration_ms 36523.5077

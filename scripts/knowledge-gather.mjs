@@ -336,8 +336,24 @@ async function managedSet(ctx) {
 // ---------- read-only publication identity (never commits, pushes or applies) ----------
 
 async function git(ctx, repo, args) {
-  const r = await runProcess({ cmd: ctx.deps.gitCommand ?? ["git"], args: ["-C", repo, ...args], env: process.env, timeoutMs: GIT_TIMEOUT_MS, timers: ctx.timers });
+  const r = await runProcess({ cmd: ctx.deps.gitCommand ?? ["git"], args: ["-C", repo, ...args], env: ctx.deps.gitEnv ?? process.env, timeoutMs: GIT_TIMEOUT_MS, timers: ctx.timers });
   return { ok: r.code === 0 && !r.error, out: r.stdout.toString("utf8").trim(), error: r.error ? String(r.error.code ?? r.error.message) : r.stderr.trim().slice(0, 200) };
+}
+
+async function repoRoot(ctx, sourcePath) {
+  if (ctx.deps.dotfilesRepo) return { root: ctx.deps.dotfilesRepo, error: null };
+  const top = await git(ctx, path.dirname(sourcePath), ["rev-parse", "--show-toplevel"]);
+  if (!top.ok || !top.out) return { root: null, error: `dotfiles repo unresolved: ${top.error || "empty"}` };
+  return { root: top.out, error: null };
+}
+
+/** The dotfiles repo root alone (the seam, else chezmoi source-path then the git toplevel); lane 71's preflight uses it. */
+export async function resolveDotfilesRepo(options = {}) {
+  const ctx = makeCtx(options);
+  if (ctx.deps.dotfilesRepo) return { root: ctx.deps.dotfilesRepo, error: null };
+  const { sourcePath, error } = await resolveDigestSource(ctx);
+  if (!sourcePath) return { root: null, error: error ?? "digest source path unresolved" };
+  return repoRoot(ctx, sourcePath);
 }
 
 /** HEAD, a FRESH remote ref (ls-remote, not a stale tracking ref), and the committed DIGEST at HEAD. */
@@ -346,13 +362,9 @@ export async function publicationState(options = {}) {
   const res = { verified: false, reason: null, head: null, remoteRef: null, digestRel: null, digestText: null, repo: null };
   const { sourcePath, error } = await resolveDigestSource(ctx);
   if (!sourcePath) return { ...res, reason: error };
-  const repo = ctx.deps.dotfilesRepo ?? null;
-  let root = repo;
-  if (!root) {
-    const top = await git(ctx, path.dirname(sourcePath), ["rev-parse", "--show-toplevel"]);
-    if (!top.ok || !top.out) return { ...res, reason: `dotfiles repo unresolved: ${top.error || "empty"}` };
-    root = top.out;
-  }
+  const found = await repoRoot(ctx, sourcePath);
+  if (!found.root) return { ...res, reason: found.error };
+  const root = found.root;
   res.repo = root;
   res.digestRel = path.relative(root, sourcePath).split(path.sep).join("/");
   const head = await git(ctx, root, ["rev-parse", "HEAD"]);
