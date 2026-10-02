@@ -1,10 +1,20 @@
 # Waiting on you now
 <details>
-<summary>**Knowledge triage is stopped: clear its ATTENTION on Windows**</summary>
-	The first knowledge-triage run on Windows (10/1) processed and archived 60 of 80 notes and committed its result in the chezmoi source repo, but could not push: three secret-guard commits landed on origin during the run, so its main diverged. It wrote ATTENTION and left .curated-update.lock, and the ATTENTION text reserves recovery to you, never an agent. The 5:00 AM task skips until it is cleared. The fetch-before-publish fix goes to the next reliability lane.
-	- [ ] Done by hand: rebase that commit onto origin in the chezmoi source repo, push, then remove ATTENTION and .curated-update.lock (recommended)
-	- [ ] Not doing this, because \[reason\]
-	No default: needs your hands
+<summary>**Goal card v6: bring back your components**</summary>
+	You asked for better goal cards and where your component plan went. Card v5 (9/24) has GOAL, NOT, DONE, STOP and four measures. The 9/28 component map and your ruling that every component gets a lane were dropped when the 9/30 plan was organized by measure. Whatever you tick, the lead drafts v6 and puts the diff here before it replaces v5.
+	- [ ] `docs/GOALS.md` gains COMPONENTS, one line each: what it does for the goal, its measure, its state word, refreshed by script at every release and shown in the Components toggle. The hook card adds one line naming them, and each measure line shows its value against the hand-run bar (recommended)
+	- [ ] Components only in `docs/components.md`, card unchanged
+	- [ ] You rewrite the card, the lead drafts v6 from your bullets
+	No default: the card is your goal statement
+	<empty-block/>
+</details>
+<details>
+<summary>**Report states to replace PARTIAL**</summary>
+	You said PARTIAL is not a good state. Runner reports today used DONE, PARTIAL, FAILED, and PARTIAL hides who is waited on. The report check in `docs/subagent-contract.md` would refuse any other first word.
+	- [ ] First line is DONE, NEEDS BEN: one line, NEEDS a peer: one line, or FAILED: why, ending with n of m steps done. Lane record Status uses the same words plus accepted and closed (recommended)
+	- [ ] Keep DONE, PARTIAL, FAILED but PARTIAL must name the blocker and who is next
+	- [ ] Something else, you say what
+	Default after 2026-10-03 12:00 -04:00: the first option
 	<empty-block/>
 </details>
 # What is going on
