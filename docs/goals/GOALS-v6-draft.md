@@ -1,4 +1,4 @@
-# Goals v6, the diff against v5 (draft, skills-f, 10/1 9:20 PM America/New_York)
+# Goals v6, the diff against v5 (draft, skills-f, 10/1 8:55 PM America/New_York)
 
 Ben ticked option A on 10/1: "`docs/GOALS.md` gains COMPONENTS, one line each: what it does for the goal, its measure, its state word, refreshed by script at every release and shown in the Components toggle. The hook card adds one line naming them, and each measure line shows its value against the hand-run bar". He also wrote, on report states: "we need another column for a super brief summary of exactly where we are and what needs to happen to actually get to a finished state, and estimate of much longer we will need to finish".
 
@@ -46,7 +46,7 @@ Refresh rule: the release script rewrites `Now`, `To finish` and `Est` from each
 
 ## Change 4: the card
 
-v5 card plus two lines. The byte cap moves from 1,200 to 1,600 so the two lines fit; the hook reads the same file.
+v5 card plus two lines. The card cap moves from 1,000 to 1,400 bytes and the render cap from 1,200 to 1,600 (the v6 card is 1,325 bytes); the hook reads the same file.
 
 ```
 GOAL: Agent work gets cheaper, faster and more reliable at equal or better quality, on any agent host, Codex and Claude Code first. Change only what improves one of these and worsens none: top-tier tokens per build, hours ask to accepted, rework after acceptance, work lost or stalled. Each change names the measure it will move; the next census checks it.

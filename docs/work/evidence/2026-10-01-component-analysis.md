@@ -1,4 +1,4 @@
-# Components: Ben's plan against what is built (skills-f, 10/1 9:10 PM America/New_York)
+# Components: Ben's plan against what is built (skills-f, 10/1 8:50 PM America/New_York)
 
 Ben asked: "analyze my components ideas vs what we have and what we've built. how integrated are they? how well do all the parts work together? do we have all the components we need for a great workflow in the future written and planned? ... what is left to plan to make this utopia our reality?"
 
