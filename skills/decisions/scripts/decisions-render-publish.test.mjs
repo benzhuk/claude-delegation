@@ -787,6 +787,69 @@ test('publish: a readback that does not match the render is exit 5', async () =>
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Step 6 (lane 72b): Notion rewrites a `www.notion.so/<id>` link to `app.notion.com/p/<id>` on write
+// ─────────────────────────────────────────────────────────────────────────────
+
+function waitingItem(title) {
+  return [
+    '<details>',
+    `<summary>**${title}**</summary>`,
+    '\tEvidence: the queue outgrew memory twice this month.',
+    '\t- [ ] Cap at 200 per run (recommended)',
+    '\t- [ ] Run uncapped',
+    '\tDefault after 2030-06-15 18:00 -04:00: cap at 200 items per run',
+    '\t<empty-block/>',
+    '</details>',
+  ].join('\n');
+}
+
+/** Simulates notion.js as the live page behaved after lane 72: the first `readPage` returns
+ * `freshPage`; every later read returns what `replaceMd` last received WITH Notion's own link
+ * rewrite applied (not the text verbatim). `mutate` lets a test change one more line. */
+function wireRewritingNotion(freshPage, mutate = (t) => t) {
+  let written = freshPage;
+  let reads = 0;
+  const rewrite = (md) => mutate(md
+    .replace(/https:\/\/(?:www\.)?notion\.so\/([0-9a-f]{32})/g, 'https://app.notion.com/p/$1')
+    .replace(/(\t<\/details>)\n\n/g, '$1\n'));
+  return {
+    readPage: async () => { reads += 1; return reads === 1 ? freshPage : rewrite(written); },
+    replaceMd: async (_page, md) => { written = md; },
+    writtenText: () => written,
+  };
+}
+
+test('publish (lane 72b): a page carrying the Goals page link reads back through the Notion link rewrite and is exit 0', async () => {
+  const files = baseFiles({
+    [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT,
+    [p('docs', 'decisions', 'waiting', 'a-item.md')]: waitingItem('Cap the nightly batch at 200 items or run it uncapped'),
+    [p('docs', 'decisions', 'waiting', 'b-item.md')]: waitingItem('Keep the old export format or drop it'),
+  });
+  const notion = wireRewritingNotion(PAGE_NO_INPUT);
+  const { deps, fsMap } = baseDeps({ files, readPage: notion.readPage, replaceMd: notion.replaceMd });
+  const result = await publish({ repo: REPO, page: 'PAGE' }, deps);
+  assert.equal(result.code, 0);
+  const written = notion.writtenText();
+  assert.ok(written.includes('\t</details>\n\n\t<details>'), 'the fixture exercises the blank separator between indented Waiting items');
+  assert.match(written, /\[Goals page\]\(https:\/\/[^)]+\/3e3da11277a1813cb326c42ed97a1d5d\)/, 'the Bearings toggle carries the Goals page link');
+  const lastRender = fsMap.get(p('docs', 'decisions', 'last-render.md'));
+  assert.equal(normalize(lastRender), normalize(written), 'last-render.md is the readback, equal to the written text after normalisation');
+  assert.ok(lastRender.includes('https://app.notion.com/p/3e3da11277a1813cb326c42ed97a1d5d'), 'last-render.md holds the readback form of the link');
+});
+
+test('publish (lane 72b): the same rewriting Notion with ONE genuinely different content line is still exit 5', async () => {
+  const files = baseFiles({ [p('docs', 'decisions', 'last-render.md')]: PAGE_NO_INPUT });
+  const notion = wireRewritingNotion(PAGE_NO_INPUT, (t) => t.replace('Netcup every 15 minutes', 'Netcup every 16 minutes'));
+  const { deps, fsMap } = baseDeps({ files, readPage: notion.readPage, replaceMd: notion.replaceMd });
+  await assert.rejects(
+    publish({ repo: REPO, page: 'PAGE' }, deps),
+    (e) => e instanceof PublishError && e.code === 5,
+  );
+  assert.match(notion.writtenText(), /Netcup every 15 minutes/, 'the planted difference is in the readback, not the render');
+  assert.equal(fsMap.get(p('docs', 'decisions', 'last-render.md')), PAGE_NO_INPUT, 'last-render.md is not advanced on a readback failure');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // --clear-done: since: set only by --clear-done, verbatim history check, mismatch naming
 // ─────────────────────────────────────────────────────────────────────────────
 
