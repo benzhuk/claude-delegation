@@ -11,6 +11,8 @@
 //     with the repo's configured identity (it never sets or switches one; with no identity it
 //     reports `no-identity` and leaves every file exactly as it was, nothing staged);
 //   - never pushes, never uses --no-verify, never resets, cleans or stashes;
+//   - refuses a path that is not the root of a linked worktree (not-worktree-root) and a main
+//     checkout (main-checkout);
 //   - refuses on a detached HEAD, on main/master (a durable checkout is never committed to), and
 //     while a merge, rebase or cherry-pick is in progress or paths are unmerged.
 // Exit code: 0 for committed or clean, 3 for a refusal or a failed commit, 2 for bad arguments.
@@ -26,6 +28,16 @@ export const PROTECTED_BRANCHES = ["main", "master"];
 function git(cwd, args, env) {
   const r = spawnSync("git", args, { cwd, encoding: "utf8", env: env ?? process.env, windowsHide: true });
   return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "", error: r.error ?? null };
+}
+
+function normPath(p) {
+  let r = path.resolve(p);
+  try {
+    r = fs.realpathSync.native(r);
+  } catch {
+    /* compare the resolved path as given */
+  }
+  return process.platform === "win32" ? r.toLowerCase() : r;
 }
 
 function result(fields) {
@@ -49,6 +61,18 @@ export function phaseCommit(opts) {
 
   const inside = git(worktree, ["rev-parse", "--is-inside-work-tree"], env);
   if (inside.status !== 0 || inside.stdout.trim() !== "true") return result({ reason: "not-a-work-tree" });
+
+  // The target must be the root of a LINKED worktree (a territory). A path that is only somewhere
+  // inside a checkout, or a main checkout itself, would commit that checkout's untracked files.
+  const top = git(worktree, ["rev-parse", "--show-toplevel"], env);
+  if (top.status !== 0 || normPath(top.stdout.trim()) !== normPath(worktree)) {
+    return result({ reason: "not-worktree-root", detail: top.stdout.trim() });
+  }
+  const gd = git(worktree, ["rev-parse", "--git-dir"], env);
+  const cd = git(worktree, ["rev-parse", "--git-common-dir"], env);
+  if (gd.status === 0 && cd.status === 0 && normPath(path.resolve(worktree, gd.stdout.trim())) === normPath(path.resolve(worktree, cd.stdout.trim()))) {
+    return result({ reason: "main-checkout" });
+  }
 
   const branch = git(worktree, ["symbolic-ref", "--quiet", "--short", "HEAD"], env);
   const branchName = branch.status === 0 ? branch.stdout.trim() : "";

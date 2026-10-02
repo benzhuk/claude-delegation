@@ -21,13 +21,18 @@ function g(cwd, childEnv, ...args) {
   return r.stdout.trim();
 }
 
+// Every territory is a LINKED worktree (the helper refuses a main checkout), so the fixture is a
+// base repo plus a worktree on the requested branch. `branch` may be "main": the base repo sits on
+// another branch, which frees "main" for the worktree.
 function makeRepo(sealed, branch = "build/x-t1") {
   const { env, fixtureRoot } = sealed;
-  const repo = fs.mkdtempSync(path.join(fixtureRoot, "phase-commit-"));
-  g(repo, env, "init", "-q", "-b", branch);
-  fs.writeFileSync(path.join(repo, "README.md"), "base\n");
-  g(repo, env, "add", "-A");
-  g(repo, env, "commit", "-q", "-m", "chore: base");
+  const base = fs.mkdtempSync(path.join(fixtureRoot, "phase-commit-base-"));
+  g(base, env, "init", "-q", "-b", "base-trunk");
+  fs.writeFileSync(path.join(base, "README.md"), "base\n");
+  g(base, env, "add", "-A");
+  g(base, env, "commit", "-q", "-m", "chore: base");
+  const repo = path.join(fixtureRoot, `phase-commit-wt-${path.basename(base)}`);
+  g(base, env, "worktree", "add", "-q", "-b", branch, repo);
   return repo;
 }
 
@@ -106,13 +111,16 @@ test("ignored files are not committed; a custom conventional message is used", (
 });
 
 test("no configured identity: nothing staged, nothing committed, files left, reason no-identity", () => {
-  const sealed = makeTempHome({ gitIdentity: false });
+  const sealed = makeTempHome();
   const { env, fixtureRoot } = sealed;
   try {
-    const repo = fs.mkdtempSync(path.join(fixtureRoot, "phase-commit-noid-"));
-    g(repo, env, "init", "-q", "-b", "build/x-t1");
+    const repo = makeRepo(sealed);
+    // the same repo, read by a git that has no identity configured anywhere
+    const emptyConfig = path.join(fixtureRoot, "empty.gitconfig");
+    fs.writeFileSync(emptyConfig, "");
+    const noId = { ...env, GIT_CONFIG_GLOBAL: emptyConfig };
     fs.writeFileSync(path.join(repo, "work.txt"), "work\n");
-    const res = phaseCommit({ worktree: repo, env });
+    const res = phaseCommit({ worktree: repo, env: noId });
     assert.equal(res.committed, false);
     assert.equal(res.reason, "no-identity");
     assert.equal(res.dirty, 1);
@@ -139,7 +147,8 @@ test("refuses on main, on a detached HEAD, and while a merge is in progress; nev
 
     const merging = makeRepo(sealed);
     fs.writeFileSync(path.join(merging, "w.txt"), "w\n");
-    fs.writeFileSync(path.join(merging, ".git", "MERGE_HEAD"), `${g(merging, env, "rev-parse", "HEAD")}\n`);
+    const mergingGitDir = path.resolve(merging, g(merging, env, "rev-parse", "--git-dir"));
+    fs.writeFileSync(path.join(mergingGitDir, "MERGE_HEAD"), `${g(merging, env, "rev-parse", "HEAD")}\n`);
     assert.equal(phaseCommit({ worktree: merging, env }).reason, "operation-in-progress");
   } finally {
     sealed.cleanup();
@@ -191,4 +200,39 @@ test("source: the helper never pushes, resets, cleans, stashes or skips hooks", 
   }
   assert.ok(!/no-verify/.test(text), "hooks are never skipped");
   assert.ok(!/--force/.test(text), "nothing is forced");
+});
+
+test("refuses a path that is not a worktree root, and a main checkout; HEAD unmoved, files left in place", () => {
+  const sealed = makeTempHome();
+  const { env, fixtureRoot } = sealed;
+  try {
+    // a main checkout on a feature branch with untracked files at the root and in a subdirectory
+    const main = fs.mkdtempSync(path.join(fixtureRoot, "phase-commit-main-"));
+    g(main, env, "init", "-q", "-b", "build/x-t1");
+    fs.writeFileSync(path.join(main, "README.md"), "base\n");
+    g(main, env, "add", "-A");
+    g(main, env, "commit", "-q", "-m", "chore: base");
+    fs.mkdirSync(path.join(main, "sub"));
+    fs.writeFileSync(path.join(main, "rootjunk.txt"), "x\n");
+    fs.writeFileSync(path.join(main, "sub", "s.txt"), "x\n");
+    const tip = g(main, env, "rev-parse", "HEAD");
+
+    const sub = phaseCommit({ worktree: path.join(main, "sub"), env });
+    assert.equal(sub.committed, false);
+    assert.equal(sub.reason, "not-worktree-root");
+    const root = phaseCommit({ worktree: main, env });
+    assert.equal(root.committed, false);
+    assert.equal(root.reason, "main-checkout");
+    assert.equal(g(main, env, "rev-parse", "HEAD"), tip);
+    assert.equal(g(main, env, "status", "--porcelain", "--untracked-files=all"), "?? rootjunk.txt\n?? sub/s.txt");
+
+    // a subdirectory of a LINKED worktree is refused too
+    const linked = makeRepo(sealed);
+    fs.mkdirSync(path.join(linked, "deep"));
+    fs.writeFileSync(path.join(linked, "deep", "d.txt"), "x\n");
+    assert.equal(phaseCommit({ worktree: path.join(linked, "deep"), env }).reason, "not-worktree-root");
+    assert.equal(phaseCommit({ worktree: linked, env }).committed, true);
+  } finally {
+    sealed.cleanup();
+  }
 });
