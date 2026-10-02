@@ -1565,6 +1565,7 @@ async function readDeclaredCodex({ real, sessionId, role, opts, nativeKeys, seen
   let inWindow = 0;
   let unusable = 0;
   for (const part of parts) {
+    if (part.data.damaged) reasons.push(`declared Codex rollout damaged: ${part.data.damaged}`);
     const fileByModel = {};
     let fileRequests = 0;
     for (const [key, entry] of part.data.windowById) {

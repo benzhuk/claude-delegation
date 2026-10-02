@@ -222,7 +222,9 @@ test('missing transcript, no in-window usage, corrupt usage, corrupt row and unk
   assertTainted(noModel, 'unknown model');
   for (const r of [missing, empty]) {
     const role = roleOf(r);
-    if (role) { assert.notEqual(role.status, 'complete'); assert.ok(role.reasons.length > 0, 'names the reason'); }
+    assert.ok(role, 'a failed declaration is reported as a role, not dropped');
+    assert.notEqual(role.status, 'complete');
+    assert.ok(role.reasons.length > 0, 'names the reason');
   }
   // contracts.d.ts: requests is number|null. An unreadable source has no known count (null); an existing
   // transcript with no in-window usage legitimately has zero requests (PARTIAL via its reason).

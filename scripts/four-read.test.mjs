@@ -1545,10 +1545,7 @@ function assertLegacyGoldenJson(actualText, legacyText) {
   legacy.numbers.forEach((n, i) => {
     assert.equal(actual.numbers[i].key, n.key);
     assert.equal(actual.numbers[i].label, n.label);
-    if (n.key === 'topTierTokensPerBuild') {
-      assert.ok(actual.numbers[i].value.startsWith(n.value.split('; partial (no spec slice)')[0]), actual.numbers[i].value);
-      assert.ok(actual.numbers[i].value.includes('; partial (no spec slice): spec-census not run'), 'legacy spec-slice reason kept');
-    } else assert.ok(actual.numbers[i].value.startsWith(n.value), `legacy text exact prefix for ${n.key}: ${actual.numbers[i].value}`);
+    assert.ok(actual.numbers[i].value.startsWith(n.value), `legacy text exact prefix for ${n.key}: ${actual.numbers[i].value}`);
   });
   assert.ok(actual.reworkAttribution && typeof actual.reworkAttribution === 'object', 'additive reworkAttribution JSON');
 }
@@ -1558,7 +1555,7 @@ function assertLegacyGoldenMarkdown(actualText, legacyText) {
   assert.ok(actual.length >= legacy.length);
   legacy.forEach((line, i) => {
     const numberRow = line.startsWith('| ') && line.endsWith(' |') && i >= 6 && i <= 9;
-    if (numberRow) assert.ok(actual[i].startsWith(line.slice(0, -2).split('; partial (no spec slice)')[0]), `legacy row prefix: ${line.slice(0, 60)}`);
+    if (numberRow) assert.ok(actual[i].startsWith(line.slice(0, -2)), `legacy row prefix: ${line.slice(0, 60)}`);
     else assert.equal(actual[i], line);
   });
 }

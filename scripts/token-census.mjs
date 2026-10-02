@@ -605,7 +605,7 @@ export function formatText(report) {
   lines.push(
     `files: ${report.sanity.mainFiles} main, ${report.sanity.subFiles} subagent `
       + `(meta missing ${report.sanity.metaMissing}) | malformed lines: ${report.sanity.malformedLines} `
-      + `| file errors: ${report.sanity.fileErrors}`,
+      + `| file errors: ${report.sanity.fileErrors} | invalid usage rows: ${report.sanity.invalidUsageRows}`,
   );
   lines.push('');
   lines.push(`cost unit = ${report.costUnitFormula}`);

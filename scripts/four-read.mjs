@@ -148,6 +148,8 @@ function unclassifiedReason(top) {
 function leadOnlyTopTier(census) {
   const byModel = isCodexCensus(census) ? census.lead && census.lead.observedWindowByModel : census.lead && census.lead.windowByModel;
   if (!byModel) return { reason: 'census has no lead window by-model sums' };
+  const totals = isCodexCensus(census) ? codexModelTotalsReason(byModel) : null; // derived_total_tokens must be a number, never null
+  if (totals) return { reason: totals };
   const tiers = topTierModels();
   const top = sumTopTier(byModel, tiers, isCodexCensus(census));
   const reason = unclassifiedReason(top);
@@ -157,14 +159,17 @@ function leadOnlyText(census) {
   const l = leadOnlyTopTier(census);
   return l.total !== undefined ? `${l.total} tokens` : `unavailable (${l.reason})`;
 }
+// Declared roles that are PARTIAL or omitted: their tokens are unknown, so the whole-build number cannot be confident.
+function declaredRoleGaps(census) {
+  return ((census && census.roleSessions) || []).filter((r) => r.status !== 'complete').map((r) => `${r.host} ${r.sessionId} (${r.role}): ${(r.reasons || []).join(', ')}`)
+    .concat(((census && census.measurementScope && census.measurementScope.omitted) || []).map((o) => `${o.host} ${o.sessionId}: ${o.reason}`));
+}
 function scopeSuffix(census, numberOneValue) {
   const scope = census && census.measurementScope;
   if (!scope || numberOneValue.startsWith('unavailable')) return '';
   const lead = leadOnlyTopTier(census);
-  const partial = (census.roleSessions || []).filter((r) => r.status !== 'complete').map((r) => `${r.host} ${r.sessionId} (${r.role}): ${r.reasons.join(', ')}`)
-    .concat((scope.omitted || []).map((o) => `${o.host} ${o.sessionId}: ${o.reason}`));
   return `; token definition ${census.tokenDefinition ? census.tokenDefinition.id : 'processed-v1'}; scope ${scope.roles} roles (wider than the lead-only hand-run baseline: SCOPE MISMATCH unless compared with lead-only top-tier ${lead.total ?? `unavailable (${lead.reason})`})`
-    + `${partial.length ? `; PARTIAL declared roles: ${partial.join('; ')}` : ''}; limitations: ${(scope.limitations || []).join('; ')}`;
+    + `; limitations: ${(scope.limitations || []).join('; ')}`; // a PARTIAL declared role never reaches here: buildFourRead makes number one unavailable first (M1)
 }
 // BLOCKER 1(b): reject a census whose window doesn't match this build's own window.
 export function computeTopTierTokens(census, specCensus, fields, openedMs = null, acceptedMs = null, lastAcceptedMs = null) {
@@ -668,6 +673,47 @@ export function computeReworkAttribution(fields, logs, recordPath, recordsDir, a
   const text = `; follow-up episodes: ${episodes.length} (declared links only, ${maturity}${coverage === 'PARTIAL' ? `; PARTIAL: ${reasons.join(', ')}` : ''})${parentText}`;
   return { text, json: shape(coverage, reasons, { windowEnd, mature, episodes, outsideWindow, episodeCount: episodes.length }) };
 }
+// ── Shared lead pane (lane 62 r1 H3) ─────────────────────────────────────────────────────
+// Window attribution reads a lead pane by time only. When another record names the same Lead-session and its own
+// [Opened, first accepted | as-of] interval overlaps this census window, the pane total covers more than one lane:
+// it is reported once with the lanes it covers, never as this lane's own and never divided.
+// Declared links (this record's Children, a record that follows up this one) are this lane's own work, not sharing.
+// Returns {lanes: sorted Work ids, unverifiable: Work ids}; null when the corpus cannot be listed or has no census window.
+export function computeSharedPane(work, leadSessionId, census, recordPath, recordsDir, asOfMs, fsImpl = fs) {
+  if (!work || !leadSessionId || !recordsDir || !recordPath) return null;
+  const from = parseDateMs(census && census.lead && census.lead.windowStartAt);
+  const to = parseDateMs(census && census.lead && census.lead.windowEndAt);
+  if (from === null || to === null) return null;
+  let listing;
+  try { listing = fsImpl === fs ? listRecords(recordsDir) : listRecords(recordsDir, { fsImpl }); } catch { return null; }
+  const here = path.resolve(recordPath);
+  const self = listing.find((e) => path.resolve(e.path) === here);
+  const own = new Set(((self && self.record && self.record.fields && self.record.fields.children) || []));
+  const lanes = new Set();
+  const unverifiable = new Set();
+  for (const entry of listing) {
+    if (entry.unreadable || path.resolve(entry.path) === here) continue;
+    const f = (entry.record && entry.record.fields) || {};
+    if (!f.work || f.work === work || f.leadSession !== leadSessionId) continue;
+    if (own.has(f.work) || f.followUpOf === work) continue;
+    const start = parseDateMs(f.opened);
+    if (start === null) { unverifiable.add(f.work); continue; }
+    const accepted = ((entry.record && entry.record.log) || []).find((l) => l.status.toLowerCase() === 'accepted');
+    const acceptedMs = accepted ? parseDateMs(accepted.at) : null;
+    const end = acceptedMs !== null ? acceptedMs : asOfMs;
+    if (Number.isNaN(end)) { unverifiable.add(f.work); continue; }
+    if (start < to && end > from) lanes.add(f.work);
+  }
+  return { lanes: [...lanes].sort(), unverifiable: [...unverifiable].sort() };
+}
+function sharedPaneText(shared, work, leadSessionId, census, paneTotal) {
+  if (!shared || (!shared.lanes.length && !shared.unverifiable.length)) return null;
+  const others = shared.lanes.length ? shared.lanes : null;
+  const cover = [work, ...shared.lanes].join(', ');
+  const open = shared.unverifiable.length ? `; same Lead-session record(s) without a usable Opened:/accepted interval, so overlap cannot be ruled out: ${shared.unverifiable.join(', ')}` : '';
+  const total = paneTotal.total !== undefined ? `${paneTotal.total} tokens` : `unavailable (${paneTotal.reason})`;
+  return `unavailable (lead pane ${leadSessionId} shared in this window${others ? ` with ${others.join(', ')}` : ''}${open}; pane total ${total} over ${census.lead.windowStartAt}..${census.lead.windowEndAt} covers lanes ${cover}; per-lane split unavailable: window attribution cannot separate lanes in one pane)`;
+}
 // ── Ledger parsing — shared by number 4 and "notes to the lead". Line shape:
 // `<from> → <to>, M.D.YY HH:MM TZ [<id>( re <parent-id>)?] KIND: text`
 const LEDGER_LINE_RE = /^(\S+)\s+→\s+(\S+),\s+(\d{1,2}\.\d{1,2}\.\d{2,4})\s+(\d{1,2}:\d{2})\s+(\S+)\s+\[([^\]]+)\]\s+(ASK|RESULT|BLOCKED|ACK|FYI):/;
@@ -1012,6 +1058,16 @@ export function buildFourRead(opts, fsImpl = fs) {
   const artifactRepo = fields['artifact-repo'];
   const reworkGit = artifactRepo === undefined ? opts.git
     : (path.posix.isAbsolute(artifactRepo) || path.win32.isAbsolute(artifactRepo)) ? artifactRepo : null; // null -> unavailable (no range)
+  // H2: the lead-only companion answers to every gate number one passed or failed (coverage, totals, identity, window).
+  const numberOneGate = numberOne.value.startsWith('unavailable') ? numberOne.value : null;
+  // H3: a pane shared with another lane's window is reported once with its lanes, never as this lane's own.
+  const sharedText = numberOneGate ? null : sharedPaneText(
+    computeSharedPane(fields.work, leadSessionId, census, opts.record, opts.records || path.dirname(path.resolve(opts.record)), opts.asOf ? Date.parse(opts.asOf) : PROCESS_AS_OF_MS, fsImpl),
+    fields.work, leadSessionId, census, leadOnlyTopTier(census));
+  if (sharedText) numberOne.value = sharedText;
+  // M1: a declared role that is PARTIAL or omitted leaves its tokens unknown: show the observed subtotal, not a confident number.
+  const declaredGaps = declaredRoleGaps(census);
+  if (!numberOneGate && !sharedText && declaredGaps.length) numberOne.value = `unavailable (PARTIAL declared roles: ${declaredGaps.join('; ')}; observed top-tier subtotal ${parseInt(numberOne.value, 10)})`;
   numberOne.value += scopeSuffix(census, numberOne.value);
   const numberThree = computeReworkAfterAcceptance(fields, logs, reworkGit, opts.branch || 'HEAD');
   const numberFour = computeWorkLostOrStalled(
@@ -1042,7 +1098,7 @@ export function buildFourRead(opts, fsImpl = fs) {
     companions: [
       { key: 'topTierAssistantMessagesPerBuild', label: 'Top-tier assistant messages per build', value: topTierMessages.value },
       { key: 'notesToLeadPerBuild', label: 'Notes to the lead per build', value: notesToLead.value },
-      ...(census && census.measurementScope ? [{ key: 'leadOnlyTopTierTokens', label: 'Top-tier tokens, lead only (hand-run baseline scope)', value: leadOnlyText(census) }] : []),
+      ...(census && census.measurementScope ? [{ key: 'leadOnlyTopTierTokens', label: 'Top-tier tokens, lead only (hand-run baseline scope)', value: numberOneGate ? `unavailable (top-tier tokens per build is ${numberOneGate})` : (sharedText || leadOnlyText(census)) }] : []),
     ],
     reworkAttribution: reworkAttribution.json,
   };
