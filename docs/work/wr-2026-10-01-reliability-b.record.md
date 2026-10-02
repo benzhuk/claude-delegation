@@ -13,7 +13,7 @@ Lead-session: a7e8fc6b-cbf3-476b-aaea-23ad30508174
 Spec-session: a7e8fc6b-cbf3-476b-aaea-23ad30508174
 Spec-from: 2026-10-02T00:13:00Z
 Base: e94f019e55b312797109f149e4b69097321a03f6
-Workflow: pending
+Workflow: wf_a4dde97d-c5b
 Log: 2026-10-02T00:13:00.000Z owned skills-o took lane 68b from skills-f-lane-68-6; resumes territory census68 from its round-1 findings
 
 Measure: work lost or stalled
