@@ -12,6 +12,15 @@ Every backticked path under skills/, scripts/ or hooks/ must exist on main; the 
 to publish otherwise. The continue skill is retired and is not listed. The build loop is the only
 route for a build. Brought current to main after lanes 64 to 68b. Source map: the 9/28 component
 map, section A.
+
+Hook card line (lane 73, a reference for the v6 card; the card text itself is not in this file or
+this lane): one line per component on the card, written as
+  <name>: Now: <one line> | To finish: <one line> | Est: <duration>
+The three fields are the same line a report carries as line 2 (scripts/report-check.mjs
+parseProgressLine) and a lane record carries after `Now:`. Now is where the component is,
+To finish is what must still happen, Est is how much longer. A component with nothing left
+writes `Now: done | To finish: nothing | Est: none`. The state words above stay the Components
+toggle vocabulary until the v6 card replaces them.
 -->
 - Goal card and goals file | Puts the goal and its four measures in front of every session | fed | `docs/GOALS.md`, `docs/goals/card.md`, `scripts/goal-card.mjs`, `hooks/lib/goal-context.mjs`
 - Goals page mirror | Shows Ben the goal, its state and the card where he reads | fed | `skills/decisions/scripts/goals-mirror.mjs`
