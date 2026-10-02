@@ -602,6 +602,7 @@ test('formatMonthDay: no leading zero on the day', () => {
 const GOOD_ITEM = [
   '<details>',
   '<summary>**Cap the nightly batch at 200 items or run it uncapped**</summary>',
+  '\tNow: queue outgrew memory twice | To finish: you pick a cap or none | Est: a day after your tick',
   '\tEvidence: the queue outgrew memory twice this month.',
   '\t- [ ] Cap at 200 per run (recommended)',
   '\t- [ ] Run uncapped',

@@ -472,6 +472,50 @@ export function checkWaitingItem(text, label, now = new Date()) {
   }
 }
 
+// Lane 73 (report-states-73, spec item 3): the three progress fields as ONE short line. The
+// shape is the same one scripts/report-check.mjs parseProgressLine enforces for reports and
+// work-record.mjs enforces for lane records; restated here so the skill stays self-contained.
+const PROGRESS_LINE_RE = /^Now:[ \t]{0,20}(.{1,400}?)[ \t]{1,20}\|[ \t]{1,20}To finish:[ \t]{0,20}(.{1,400}?)[ \t]{1,20}\|[ \t]{1,20}Est:[ \t]{0,20}(.{1,200}?)[ \t]{0,20}$/;
+const PROGRESS_LINE_MAX_CHARS = 200;
+const PROGRESS_SHAPE = 'Now: <one line> | To finish: <one line> | Est: <duration>';
+
+/** True when `line` is exactly the three-field line, all three non-empty, no extra field. */
+export function isProgressLine(line) {
+  const m = PROGRESS_LINE_RE.exec(String(line).trim());
+  return Boolean(m) && m[1].trim() !== '' && m[2].trim() !== '' && m[3].trim() !== '' && !m[3].includes('|');
+}
+
+/** A waiting item shows the three fields as one short line directly under its title: the line
+ * right after the `<summary>` line, tab-indented like the rest of the item's children. Refused
+ * naming file and line. Run before the page is composed; the line then rides into the page
+ * verbatim (checkProseLines and checkAutolinkLines still see it). */
+export function checkWaitingProgressLine(text, label) {
+  const lines = String(text).replace(/\r\n/g, '\n').split('\n');
+  const summaryIdx = lines.findIndex((l) => /<summary>/.test(l));
+  if (summaryIdx === -1) return; // not a toggle item; checkWaitingItem already refuses what it cannot read
+  const next = lines[summaryIdx + 1] ?? '';
+  const bare = next.replace(/^\t+/, '');
+  if (!/^\t+Now:/.test(next)) {
+    throw new RefusedError(`${label}:${summaryIdx + 2} lacks the line directly under the title: \`${PROGRESS_SHAPE}\``);
+  }
+  if (!isProgressLine(bare)) {
+    throw new RefusedError(`${label}:${summaryIdx + 2} is not exactly \`${PROGRESS_SHAPE}\` with all three fields non-empty`);
+  }
+  if (bare.length > PROGRESS_LINE_MAX_CHARS) {
+    throw new RefusedError(`${label}:${summaryIdx + 2} is ${bare.length} characters, more than the required ${PROGRESS_LINE_MAX_CHARS} for the progress line`);
+  }
+}
+
+/** A session bullet that says it is in progress carries the three fields. The 200-character
+ * bullet limit counts the fields, so a bullet cannot pass by hiding them past the cut. */
+export function checkSessionProgress(bare, label) {
+  if (!/^In progress\b/i.test(bare)) return;
+  const at = bare.search(/Now:/);
+  if (at === -1 || !isProgressLine(bare.slice(at))) {
+    throw new RefusedError(`${label} says "In progress" but lacks \`${PROGRESS_SHAPE}\` with all three fields non-empty`);
+  }
+}
+
 function buildWaitingSection({
   repo, readFile, readdirSync, now,
 }) {
@@ -482,6 +526,7 @@ function buildWaitingSection({
     const full = path.join(dir, f);
     const text = readRequired(readFile, full, `waiting/${f}`);
     checkWaitingItem(text, `waiting/${f}`, now);
+    checkWaitingProgressLine(text, `waiting/${f}`);
     checkProseLines(text, `waiting/${f}`);
     checkAutolinkLines(text, `waiting/${f}`);
     return text.replace(/\s+$/, '');
@@ -533,6 +578,7 @@ function buildSessionSection({ repo, readFile }) {
     if (bare.length > SESSION_MAX_BULLET_CHARS) {
       throw new RefusedError(`session.md:${idx + 2} is ${bare.length} characters, more than the required ${SESSION_MAX_BULLET_CHARS}`);
     }
+    checkSessionProgress(bare, `session.md:${idx + 2}`);
   }
   const heading = `# This session (since your tick at ${formatSinceHeading(since)})`;
   const body = bullets.map((b) => (b.startsWith('-') ? b : `- ${b}`));
