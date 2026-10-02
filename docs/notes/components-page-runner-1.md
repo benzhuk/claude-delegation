@@ -1,0 +1,5 @@
+DONE: 36 components in 15 groups, 6 built parts not in the plan
+Length is 424 lines, over the 400 asked: page-lint's toggle-tail rule needs an empty block at the end of every nested toggle, which cost 43 lines. page-lint --kind plain is clean. Not run: Notion publish.
+Placement was my judgment where Ben named nothing: agent roles, shared docs, the delegation reminder and the dispatch guard sit under Lead and tiering; the knowledge read logger under Knowledge and memory; dev-server under Skill set; the plugin manifest and janitor installer and reclaim are built parts with no line in docs/components.md, so they carry no state word.
+Research and Multi-build (state missing) sit under Asked for, then dropped, since Ben has no quote for them. The secret guard is named in the ideas file but not in the inventory or components.md, so it has no entry. Per-component sizes come from the inventory only and are omitted where it gave none.
+Unverified: the revision is shown as a proposal because the history read to 5:42 PM on 10/2 records no go from Ben. Host install state per box is not in the repo, so flusher and collector registration is stated as unknown.
