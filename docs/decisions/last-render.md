@@ -84,6 +84,7 @@
 	- The revised method is on this page in the new pitch format, first under Waiting.
 	- Janitor 0.20.20 install in progress on all four machines, your five classes on.
 	- [Lead's view of the harness plan](https://github.com/benzhuk/claude-delegation/blob/main/docs/notion/lead-view-architecture-and-plan.md): also a Notion page beside this one.
+	- [Components by your plan](https://github.com/benzhuk/claude-delegation/blob/main/docs/notion/components-by-plan.md): also a Notion page beside this one.
 	<callout icon="✅">
 		To comment, start a line with `**` anywhere on this page, then tick Done to submit; the answer appears here and the exchange is kept in that day's history file.
 	</callout>
