@@ -16,7 +16,7 @@ import {
 } from './decisions-pickup.mjs';
 import * as pickupModule from './decisions-pickup.mjs';
 import { publish, defaultReadPickupCapture } from './decisions-render-publish.mjs';
-import { toggleFiles, CARD_SHA } from './toggles-fixtures.mjs';
+import { toggleFiles, CARD_SHA } from './fixtures/toggles-fixtures.mjs';
 
 const PAGE = `<summary>Choose transport</summary>
 - [x] Keep the existing transport

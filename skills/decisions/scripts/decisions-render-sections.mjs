@@ -95,8 +95,16 @@ function newestBearingsDate(readdirSync, dir) {
   } catch (e) {
     throw new BlindError(`cannot list ${dir}: ${e instanceof Error ? e.message : e}`);
   }
-  const dates = names.map((n) => /^(\d{4}-\d{2}-\d{2})-bearings-assessment\.md$/.exec(n)).filter(Boolean).map((m) => m[1]).sort();
-  if (dates.length === 0) throw new RefusedError('no docs/work/evidence/<date>-bearings-assessment.md found; the Bearings toggle invents nothing');
+  const have = new Set(names);
+  // The newest date that has BOTH files: the assessment lands before the lead writes the
+  // response, and an unpaired newest assessment must not blind the page.
+  const all = names
+    .map((n) => /^(\d{4}-\d{2}-\d{2})-bearings-assessment\.md$/.exec(n))
+    .filter(Boolean)
+    .map((m) => m[1]);
+  if (all.length === 0) throw new RefusedError('no docs/work/evidence/<date>-bearings-assessment.md found; the Bearings toggle invents nothing');
+  const dates = all.filter((d) => have.has(`${d}-bearings-response.md`)).sort();
+  if (dates.length === 0) throw new BlindError(`no bearings assessment has its -bearings-response.md yet (newest assessment: ${all.sort().pop()})`);
   return dates[dates.length - 1];
 }
 
@@ -105,11 +113,37 @@ function clean(s) {
   return s.replace(/\*\*/g, '').trim();
 }
 
+/** The verdict word: first word of a field, backticks and bold stripped, trailing punctuation dropped. */
+function verdictWord(s) {
+  const first = s.replace(/[`*]/g, '').trim().split(/\s+/)[0] ?? '';
+  return first.replace(/[.,;:]+$/, '');
+}
+
+/** The decision: a bare verdict on line 1, or `DECISION:`/`VERDICT:` followed by one on line 1,
+ * else the first `Decision:` line (list item, heading or bare) of the assessment. */
+function bearingsDecision(aLines) {
+  const first = (aLines.find((l) => l.trim() !== '') ?? '').trim();
+  if (BEARINGS_VERDICTS.includes(first)) return first;
+  const lead = /^(?:DECISION|VERDICT):\s*(.+)$/.exec(first);
+  if (lead && BEARINGS_VERDICTS.includes(verdictWord(lead[1]))) return verdictWord(lead[1]);
+  for (const l of aLines) {
+    const m = /^\s*(?:[-*]\s+|#{1,3}\s+)?(?:\*\*)?Decision:(?:\*\*)?\s*(.+)$/.exec(l);
+    if (m && BEARINGS_VERDICTS.includes(verdictWord(m[1]))) return verdictWord(m[1]);
+  }
+  return null;
+}
+
+/** A prediction field that only points elsewhere carries no prediction. */
+function isPointer(text) {
+  return /^see\b.{0,60}$/i.test(text.trim());
+}
+
 export function parseBearings(assessmentText, responseText, date) {
   const aLines = String(assessmentText).replace(/\r\n/g, '\n').split('\n');
-  const verdict = (aLines.find((l) => l.trim() !== '') ?? '').trim();
-  if (!BEARINGS_VERDICTS.includes(verdict)) {
-    throw new RefusedError(`bearings ${date}: assessment line 1 is "${verdict.slice(0, 40)}", not one of ${BEARINGS_VERDICTS.join(', ')}`);
+  const verdict = bearingsDecision(aLines);
+  if (verdict === null) {
+    const first = (aLines.find((l) => l.trim() !== '') ?? '').trim();
+    throw new RefusedError(`bearings ${date}: no decision found: line 1 is "${first.slice(0, 40)}" and no "Decision:" line names one of ${BEARINGS_VERDICTS.join(', ')}`);
   }
   const field = (lines, re) => {
     for (const l of lines) {
@@ -132,7 +166,24 @@ export function parseBearings(assessmentText, responseText, date) {
       break;
     }
   }
-  if (checkDate === null) throw new RefusedError(`bearings ${date}: no "Check on <M/D H:MM AM/PM>: <prediction>" line in the response`);
+  if (prediction === null) {
+    // Fallback: a `Prediction...:` line in the response, then the assessment's `- Prediction:` line,
+    // unless its text only points elsewhere. Never invented.
+    const predRe = /^\s*(?:[-*]\s+)?(?:\*\*)?Prediction(?:,[^:]*?|\s[^:]*?)?:(?:\*\*)?\s+(.+)$/;
+    for (const lines of [rLines, aLines]) {
+      for (const l of lines) {
+        const m = predRe.exec(l);
+        if (m && clean(m[1]) !== '' && !isPointer(clean(m[1]))) {
+          prediction = clean(m[1]);
+          break;
+        }
+      }
+      if (prediction !== null) break;
+    }
+  }
+  if (prediction === null) {
+    throw new RefusedError(`bearings ${date}: no "Check on <M/D H:MM AM/PM>: <prediction>" line in the response and no "Prediction:" line that states one`);
+  }
   return {
     verdict, condition, nextAction, checkDate, prediction,
   };
@@ -152,7 +203,7 @@ export function buildBearingsToggle({ repo, readFile, readdirSync }) {
     `Decision: ${b.verdict} (${date}).`,
     ...(b.condition ? [`Condition: ${b.condition}`] : []),
     `Next action: ${b.nextAction}`,
-    `Prediction, check ${b.checkDate}: ${b.prediction}`,
+    b.checkDate === null ? `Prediction: ${b.prediction}` : `Prediction, check ${b.checkDate}: ${b.prediction}`,
   ];
   checkLines(prose.map(wrapBareFilenames), 'bearings');
   const links = `Links: [Goals page](${GOALS_PAGE_URL}), [assessment](${aUrl}), [response](${rUrl}).`;
@@ -174,7 +225,8 @@ export function parseComponents(text) {
   const body = String(text).replace(/\r\n/g, '\n').replace(/<!--[\s\S]*?-->/g, '');
   const rows = [];
   for (const line of body.split('\n')) {
-    if (!/^- /.test(line)) continue;
+    if (line.trim() === '') continue;
+    if (!/^- /.test(line)) throw new RefusedError(`docs/components.md: a line outside the header comment is not "- name | what | state | paths": ${line.slice(0, 80)}`);
     const fields = line.slice(2).split(' | ').map((s) => s.trim());
     if (fields.length < 3) throw new RefusedError(`docs/components.md: line is not "name | what it does | state | paths": ${line.slice(0, 80)}`);
     const [name, what, state, paths = ''] = fields;
@@ -182,7 +234,7 @@ export function parseComponents(text) {
       throw new RefusedError(`docs/components.md: "${name}" has state "${state}", not one of ${COMPONENT_STATES.join(', ')}`);
     }
     rows.push({
-      name, what, state, paths: componentPaths(paths),
+      name, what, state, paths: componentPaths(line),
     });
   }
   if (rows.length === 0) throw new RefusedError('docs/components.md lists no component');

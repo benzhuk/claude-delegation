@@ -12,7 +12,7 @@ import {
 import { normalize, RefusedError } from './decisions-render-core.mjs';
 import { parseDocument } from './decisions-read.mjs';
 import { run } from './decisions-render.mjs';
-import { toggleFiles, CARD_SHA } from './toggles-fixtures.mjs';
+import { toggleFiles, CARD_SHA } from './fixtures/toggles-fixtures.mjs';
 
 const REPO = '/repo';
 function p(...parts) { return path.join(REPO, ...parts); }

@@ -20,7 +20,7 @@ import {
   run, defaultReadPageWithCli, defaultReplaceMdWithCli,
 } from './decisions-render.mjs';
 import { PAGE_LINT_SKIP, REPO_BLOB_BASE } from './decisions-render-core.mjs';
-import { toggleFiles, withTogglesGit } from './toggles-fixtures.mjs';
+import { toggleFiles, withTogglesGit } from './fixtures/toggles-fixtures.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 const SCRIPT_PATH = path.join(HERE, 'decisions-render.mjs');
@@ -1021,7 +1021,7 @@ test('page-lint: the kill switch skips the call, fails open, logs one line, and 
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Lane 72: the three agent-owned toggles (Goal card, Bearings, Components), the components path
-// guard, and the page shape (every top-level block a toggle). Fixtures from toggles-fixtures.mjs.
+// guard, and the page shape (every top-level block a toggle). Fixtures from fixtures/toggles-fixtures.mjs.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const REAL_REPO = path.join(HERE, '..', '..', '..');
@@ -1139,6 +1139,57 @@ test('Bearings toggle: a missing field refuses (exit 2) naming it, a missing fil
   assert.throws(() => render({ repo: REPO }, none.deps), BlindError);
   none.fs.map.set(evidence('notes.md'), 'x');
   assert.throws(() => render({ repo: REPO }, none.deps), (e) => e instanceof RefusedError && /bearings-assessment/.test(e.message));
+});
+
+test('Bearings toggle: a pair shaped like the bearings skill template parses (line 1 heading, "- Decision:" and "- Prediction:" lines)', async () => {
+  const { parseBearings } = await import('./decisions-render-sections.mjs');
+  const A = [
+    '# Bearings — p — 2026-10-06',
+    '',
+    '- Decision: `RE-PLAN`. It covers one lane only.',
+    '- Condition: if the read is missing, cut.',
+    '- Next action: freeze the script and build the read.',
+    '- Prediction: by the next run the read reports all four numbers.',
+    '',
+  ].join('\n');
+  const b = parseBearings(A, 'The lead accepts the assessment.\n', '2026-10-06');
+  assert.equal(b.verdict, 'RE-PLAN');
+  assert.equal(b.condition, 'if the read is missing, cut.');
+  assert.equal(b.nextAction, 'freeze the script and build the read.');
+  assert.equal(b.checkDate, null);
+  assert.equal(b.prediction, 'by the next run the read reports all four numbers.');
+  // DECISION:/VERDICT: on line 1 and a "## Decision: **X**" heading are read too.
+  assert.equal(parseBearings('DECISION: CUT\n- Next action: x.\n- Prediction: y happens.\n', '', 'd').verdict, 'CUT');
+  assert.equal(parseBearings('VERDICT: RE-PLAN\n- Next action: x.\n- Prediction: y happens.\n', '', 'd').verdict, 'RE-PLAN');
+  assert.equal(parseBearings('# Title\n## Decision: **CONTINUE**\n- Next action: x.\n- Prediction: y happens.\n', '', 'd').verdict, 'CONTINUE');
+  // A response "Check on" line still wins over the assessment prediction, with its date.
+  const c = parseBearings(A, 'Check on 10/9 9:00 AM: the spec is on origin.\n', '2026-10-06');
+  assert.equal(c.checkDate, '10/9 9:00 AM');
+  assert.equal(c.prediction, 'the spec is on origin.');
+  // A pointer prediction ("see below") is not a prediction; nothing found refuses.
+  const ptr = A.replace(/- Prediction: .*/, '- Prediction: see "Prediction" below.');
+  assert.throws(() => parseBearings(ptr, 'Accepted.\n', 'd'), (e) => e instanceof RefusedError && /Prediction/.test(e.message));
+  // No decision anywhere refuses.
+  assert.throws(() => parseBearings('# Heading\n- Next action: x.\n', 'Check on 10/9 9:00 AM: z.\n', 'd'), (e) => e instanceof RefusedError && /no decision/.test(e.message));
+});
+
+test('Bearings toggle: an assessment with no response yet does not blind the page; the last complete pair shows', () => {
+  const { deps } = renderDeps({
+    [evidence('2026-10-09-bearings-assessment.md')]: 'RE-PLAN\n\n- Next action: unfinished.\n',
+  });
+  const block = toggleOf(render({ repo: REPO }, deps), 'Bearings');
+  assert.equal(block[1], '\tDecision: CONTINUE (2026-10-01).');
+  assert.ok(!block.some((l) => l.includes('2026-10-09')));
+});
+
+test('Components: a stale path outside the 4th field, or a line that is not a component, refuses', () => {
+  const stale = renderDeps({ [p('docs', 'components.md')]: '- Thing at `scripts/gone.mjs` | does a thing | fed | `scripts/build-census.mjs`\n' });
+  stale.deps.execGit = withTogglesGit(fakeGit(), { absent: ['scripts/gone.mjs'] });
+  assert.throws(() => render({ repo: REPO }, stale.deps), (e) => e instanceof RefusedError && /scripts\/gone\.mjs/.test(e.message));
+  for (const line of ['* Thing | does a thing | fed | `scripts/x.mjs`\n', '  - Thing | does a thing | fed | `scripts/x.mjs`\n']) {
+    const ok = '- Other | does a thing | fed | `scripts/build-census.mjs`\n';
+    assert.throws(() => render({ repo: REPO }, renderDeps({ [p('docs', 'components.md')]: ok + line }).deps), (e) => e instanceof RefusedError && /outside the header comment/.test(e.message));
+  }
 });
 
 test('Components toggle: one line per component with its name, state word and what it does for the goal', () => {
