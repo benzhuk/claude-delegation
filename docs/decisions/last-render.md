@@ -52,6 +52,7 @@
 # Waiting on you now {toggle="true"}
 	<details>
 	<summary>**Which decisions are yours**</summary>
+		Now: waiting on your tick \| To finish: you tick, the lead writes the classes into the decisions skill \| Est: default fires 10/3 noon
 		Agents today decide on their own when to ask you. Proposal: three classes in the decisions skill, and every item for you carries a default and a time.
 		- [ ] Yours: the aim and measures, money, machines, anything irreversible, anything that changes a rule you set. Lead's: lane rulings, ordering, scope inside a ruling. Automatic: anything a script checks. Default fires at the stated time unless you tick (recommended)
 		- [ ] Same classes, but nothing defaults: every item waits for your tick
@@ -61,6 +62,7 @@
 	</details>
 	<details>
 	<summary>**Goal card v6: the diff to apply**</summary>
+		Now: v6 draft ready for your tick \| To finish: you tick, v5 replaced in `docs/GOALS.md` \| Est: one lane after your tick
 		You ticked A. The draft is [GOALS-v6-draft](https://github.com/benzhuk/claude-delegation/blob/main/docs/goals/GOALS-v6-draft.md).
 		Status words are replaced by Now, To finish, Est on every goal and component.
 		The measures table gains a live column written by the census.
@@ -73,6 +75,7 @@
 	</details>
 	<details>
 	<summary>**Janitor policy, one tick**</summary>
+		Now: lane 74 builds the classes in report mode \| To finish: you tick, the classes act \| Est: default fires 10/3 noon
 		You asked whether the janitor stops the 9/30 mess from recurring. It does not yet. Lane 74 builds the classes below; they act only after this tick and until then report what they would do. Roots: every git repo under `~/Code`, `<repo>/.claude/worktrees`, the session Temp scratch root, `orca/workspaces`, `/var/tmp/lane-*`. Never BTO, never dotfiles.
 		- [ ] Dirty worktree with no open record, idle 24 h: commit all of it to archive/\<name\>, push, remove the worktree (recommended)
 		- [ ] Unmerged local-only branch with no open record: push as archive/\<name\>, delete locally (recommended)
@@ -85,6 +88,7 @@
 	</details>
 	<details>
 	<summary>**A fifth measure for output quality**</summary>
+		Now: waiting on your tick \| To finish: you tick, the reviewer scores and the census reads it \| Est: one lane after your tick
 		The four measures are about the harness. Nothing scores what a build produced beyond rework within 7 days.
 		- [ ] Add it: the Opus reviewer gives every accepted build a quality score against its spec, the census reads it, the card shows it (recommended)
 		- [ ] Rework after acceptance is enough
@@ -94,6 +98,7 @@
 	</details>
 	<details>
 	<summary>**Release 0.20.20 and install on all four hosts**</summary>
+		Now: waiting on your word \| To finish: release cut, installs on four hosts \| Est: one morning after your word
 		The new-worktree guard (lane 65) and the drift-log fix are on main and installed nowhere; Netcup and Hetzner janitor timers still run 0.20.14 code.
 		- [ ] Install now: cut 0.20.20 from main and install on Windows, Netcup, Hetzner and Mac tomorrow morning, timers re-registered (recommended)
 		- [ ] Hold: wait for lanes 72 to 74, then one release
@@ -102,6 +107,7 @@
 	</details>
 	<details>
 	<summary>**The simplification lane**</summary>
+		Now: waiting on your tick \| To finish: you tick, the lane opens one area at a time \| Est: days once opened
 		The census has 38 lanes of patches across three scripts, the pickup 21 lanes; three hooks inject text nobody measures; six scripts run over 1,000 lines. Proposal: one lane that replaces, not patches.
 		- [ ] Open it now: one census module, pickup rebuilt as a diff of the page against its last render (no rounds, pointers, rebinding), one context hook with a byte budget the census reads, six scripts split under 800 lines. Through the Workflow, one area at a time, each accepted before the next (recommended)
 		- [ ] Open it after Codex DONE (lanes 62, 69) lands
@@ -116,8 +122,8 @@
 	- Lane 68 part one merged 5:58 PM: a stale-plugin warning per pane, and inboxes register only from the main session.
 	- Your B landed as lane 68b at 8:30 PM; the guard narrowing becomes lane 70 when you lift the guard for one run.
 	- In progress, goal card v6 (you ticked A). Now: lead drafting v6 from the component analysis \| To finish: diff on this page, you tick, v5 replaced \| Est: tonight for the diff
-	- In progress, report states (your answer). Now: lane 73 opened for the states and three fields \| To finish: contract, records, renderer \| Est: on main by 10/2 3:00 PM
-	- Lanes 71 and 72 merged tonight: triage fetches first; card, bearings and components toggles. Running: 62 recovery (held on the guard), 73, then 74.
+	- Report states landed as lane 73 at 11:33 PM: DONE, NEEDS BEN, NEEDS a peer, FAILED, plus Now, To finish, Est on open work.
+	- Lanes 71, 72, 72b and 73 merged tonight. Next: 74 cleanup. Lane 62 recovery waits on your call about the secret guard.
 	- [Component analysis](https://github.com/benzhuk/claude-delegation/blob/main/docs/work/evidence/2026-10-01-component-analysis.md): four islands, ten unowned mess classes, nine items to plan.
 	- [Janitor evaluation](https://github.com/benzhuk/claude-delegation/blob/main/docs/work/evidence/2026-10-01-cleanup-vs-janitor.md): one class, nothing removed yet; lane 74 fixes it.
 	<callout icon="✅">
