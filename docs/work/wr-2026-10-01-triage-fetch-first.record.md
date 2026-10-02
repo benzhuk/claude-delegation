@@ -6,7 +6,7 @@ Authority: build and review on branch build/triage-fetch-first-71; merge into ma
 Next: build-loop Workflow run, suites on Netcup and Hetzner, accept, merge-check, merge, RESULT to skills-f
 Artifact: build/triage-fetch-first-71@6b6365dfef2af9d913f36911572250a5248013c3
 Evidence: docs/work/evidence/wr-2026-10-01-triage-fetch-first-triage71.md, docs/work/evidence/wr-2026-10-01-triage-fetch-first-suites.md
-Worktree: .claude/worktrees/lane-71
+Worktree: build/triage-fetch-first-71
 Scratch: C:/Users/benzh/AppData/Local/Temp/claude/C--Users-benzh-Code-zhuk-infra-claude-delegation/a7e8fc6b-cbf3-476b-aaea-23ad30508174/scratchpad/lane-71
 Opened: 2026-10-02T00:29:00.000Z
 Lead-session: a7e8fc6b-cbf3-476b-aaea-23ad30508174
