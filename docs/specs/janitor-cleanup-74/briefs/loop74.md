@@ -1,0 +1,52 @@
+Task: Build territory loop74 of lane 74 in your worktree: spec items 1, 4, 5 (the move part) and 8 (the loop-side tests), with tests, and commit on your branch. The build loop commits a territory at the end of every phase and before any report; a landed lane runs closeout automatically; peer packets, pickup pointers and the ledger stop landing untracked in a checkout.
+Goal: work is not lost or stalled: uncommitted code never outlives a phase, a lane that lands leaves nothing behind, and the plugin's own packets and pointers never dirty a durable checkout.
+Work: wr-2026-10-02-janitor-cleanup
+
+Inputs (by path):
+- C:/Users/benzh/Code/zhuk-infra/claude-delegation/.claude/worktrees/lane-74/docs/specs/janitor-cleanup-74/spec.md (the pinned scope; no separate contracts file, the spec IS the contract)
+- C:/Users/benzh/Code/zhuk-infra/claude-delegation/.claude/worktrees/lane-74/docs/specs/janitor-cleanup-74/briefs/scout-loop74.md (your scout addendum: read it before any code. Where it conflicts with the spec, the spec wins. Its section 4 questions are yours to resolve under Autonomy below.)
+- C:/Users/benzh/Code/zhuk-infra/claude-delegation/.claude/worktrees/lane-74/docs/work/wr-2026-10-02-janitor-cleanup.record.md (read-only context; you never write the record)
+- C:/Users/benzh/Code/zhuk-infra/claude-delegation/docs/work/evidence/2026-10-01-cleanup-vs-janitor.md (read-only evidence, untracked in the main checkout only)
+- Code to read first (paths relative to your worktree): skills/team-build/references/build-loop-workflow.js (buildPrompt l.322, BUILD_MANDATE l.197, phases l.859-1264, state file l.557), skills/team-build/references/accept-prep.mjs, skills/team-build/SKILL.md (l.286-305, l.455-480), scripts/work-record.mjs (closeoutRecord l.2383), skills/multi/scripts/note-send.mjs, skills/multi/scripts/transport.mjs (l.826-886), skills/multi/scripts/envelope.mjs (validateDetails l.102), skills/multi/scripts/note-inbox.mjs (packetLocation l.351), skills/decisions/scripts/decisions-pickup.mjs (l.240-310, l.445-530), agents/builder.md
+
+PROJECT FACTS (at most 25 lines):
+- Your worktree: C:/Users/benzh/Code/zhuk-infra/claude-delegation/.claude/worktrees/wt-janitor-cleanup-74-loop74, branch build/janitor-cleanup-74-loop74, cut from base 6b302f9380b93bf8ef1414f41c460a2077930f70. Work and commit there only (conventional commit messages, no Co-Authored-By, no byline, the configured git identity untouched).
+- The integration worktree/branch is C:/Users/benzh/Code/zhuk-infra/claude-delegation/.claude/worktrees/lane-74 (branch build/janitor-cleanup-74); you never write there except your reports and state file to the absolute paths below.
+- Windows host. No package.json, no npm, Node only. There is NO full suite on Windows: run `node --test` only on the files in the Gate. Never run `node scripts/run-tests.mjs` with no arguments, never a bare `node --test`. The full suite runs later on Netcup and Hetzner, by the lead.
+- SAFETY OF TESTS: scratch git repos (fs.mkdtempSync under os.tmpdir(), or makeTempHome from scripts/test-home.mjs) and a sealed or injected fake home ONLY. Never write to the real home, the real ~/.agents, a real repo, a real worktree or a real origin; every path a test touches comes from an injected home or repo. Never run note-send, the flusher or a closeout against a real ledger or a real record. Closeout tests use fixture repos with a bare fixture origin (follow scripts/work-record-closeout.test.mjs).
+- No rm and no recursive delete by you, no forced anything, no history-discarding or tree-wiping git commands. Removal in this lane goes only through the existing, tested `close --closeout` / `closeoutWorktree` path; add no new raw unlink path.
+- build-loop-workflow.js is a Workflow script: no fs, no shell, no timers; every action is an `agent(...)` call, so a deterministic step goes in a tested .mjs helper (as accept-prep.mjs does) that a runner agent executes. Its existing 129 tests pin prompt text and phase order: keep every existing assertion green and add new ones.
+- A builder that dies leaves committed work: the phase-end commit also runs when a builder or runner returned nothing (a null/dead agent).
+- Edit agents/builder.md and agents/runner.md OUTSIDE the safety-block markers only (agents/agents.test.mjs pins the block byte-identical and under 2100 characters).
+- Packets: the scripts and docs that name `docs/notes/<id>.md` are listed in the scout file; envelope Details is validated as repo-relative (validateDetails refuses absolute, `~`, drive letters, `:` and `..`), so an out-of-checkout packet needs a Details convention every reader resolves. Existing `docs/notes/...` Details must keep resolving.
+- If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block. Never set a git identity, no --no-verify, never push.
+
+NOT (out of scope, stated explicitly):
+- Territory janitor74's files: scripts/janitor.mjs, scripts/janitor-*.mjs, scripts/install-janitor-timer.mjs, skills/janitor/SKILL.md, hooks/hooks.json, hooks/codex-hooks.json, the janitor policy, roots, archive and untracked report. If you need a change there (for example to closeoutWorktree), stop and report it as a blocker; call closeoutWorktree as it is.
+- docs/work/*.record.md, docs/decisions/*, the README changelog, any release or install, the Netcup and Hetzner suites.
+- Changing the meaning of any existing build-loop return field or blocker name, or the safety block of any agent file.
+- Never push; never merge into any branch; never touch another worktree.
+
+Evidence format: cite file:line for every claim about existing code; for each of items 1, 4, 5, 8 name the test(s) that prove it and quote the tail of the gate log; show the dying-builder fixture before (uncommitted edits) and after (a commit on the territory branch). State every scout open question you resolved, the answer you chose and why, in one line each, including the ledger ruling and its reason.
+
+Report: C:/Users/benzh/Code/zhuk-infra/claude-delegation/.claude/worktrees/lane-74/docs/specs/janitor-cleanup-74/reports/loop74-builder.md. Line 1 is the verdict, first word (VERDICT: PASS / FAIL / PARTIAL / BLOCKED).
+
+Gate: node --test skills/team-build/references/build-loop-workflow.test.mjs skills/team-build/references/accept-prep.test.mjs scripts/work-record-closeout.test.mjs scripts/record-closed-and-skip.contract.test.mjs scripts/work-record.test.mjs skills/multi/scripts/note-send.test.mjs skills/multi/scripts/transport.test.mjs skills/multi/scripts/note-inbox.test.mjs skills/multi/scripts/envelope.test.mjs skills/multi/scripts/note-flush.test.mjs skills/multi/scripts/hooks.test.mjs skills/decisions/scripts/decisions-pickup.test.mjs skills/decisions/scripts/skill-text.test.mjs agents/agents.test.mjs scripts/test-home.test.mjs <every test file you add or change, appended here> > C:/Users/benzh/Code/zhuk-infra/claude-delegation/.claude/worktrees/lane-74/docs/specs/janitor-cleanup-74/reports/loop74-gate.log 2>&1. Read only the tail and the failing names. No wrapper script. If you change what a ledger reader reads, also append scripts/collect-status.test.mjs scripts/four-read.test.mjs scripts/build-census.test.mjs.
+
+State file: C:/Users/benzh/Code/zhuk-infra/claude-delegation/.claude/worktrees/lane-74/docs/specs/janitor-cleanup-74/reports/loop74-state.md. Keep it current after every gate.
+
+A result of zero, "not found" or "could not determine" is a good answer. Say what you tried. Do not guess.
+
+Autonomy: you may decide, and must record in your report, the scout section-4 questions, each by the simplest reading that keeps the spec's wording true and loses no work:
+(1) item 1: a tested helper (for example skills/team-build/references/phase-commit.mjs) that, given a territory worktree, stages everything not ignored and makes one conventional commit when the tree is dirty and does nothing when clean; the script spawns a runner agent to execute it after every Build, Fix and seam-fix agent call, including a call that returned nothing, and BUILD_MANDATE gains a line telling the builder to commit before its report. The commit uses the configured identity; with none, the helper reports it and leaves the files.
+(2) item 4: the SKILL.md Ship merge text and a tested closeout helper make `work-record.mjs close --closeout --by <Lead-session>` the step that follows a pushed merge; extend closeout, or the helper, to also remove the lane's clean, merged territory worktrees and local territory branches (pattern `<lane branch>-<id>`), through closeoutWorktree only, each with its own `removed`/`refused <reason>`/`absent` line. Never touch a dirty one.
+(3) item 5 Details: out-of-checkout packets live at `~/.agents/notes/packets/<repo-name>/<id>.md`; pick a charset-valid Details form every reader resolves (note-inbox, multi hooks, collect-status, decisions-pickup verification), keep old `docs/notes/...` Details resolving, and update skills/multi references and examples. Pickup pointers and `docs/work/evidence/janitor/*.json` move to `~/.agents/`.
+(4) ledger: rule tracked-and-committed or moved out, and say why in the report; whichever you pick, a send and a pickup leave `git status --porcelain` of a durable checkout empty, and the cross-host mirror and every ledger reader keep working.
+(5) packets already untracked in main: do not move them; the janitor's 7-day untracked report (janitor74) covers them.
+Check in (BLOCKED, do not improvise) before: changing the meaning of an existing loop return field or blocker; touching any janitor file; touching the safety block; touching anything outside the files this brief names or the helpers you add.
+Un-agent-able steps: the Netcup/Hetzner suites and any live closeout of a real lane are the lead's, scoped out of "done" for you. Live proof is a fixture run of the phase-commit helper and of the closeout against fixture repos.
+ETA: 120 to 180 minutes. Report or park by then.
+
+If any command is denied by a permission prompt, sandbox or guard hook, stop that step and report it verbatim; never do the same thing through another tool or shell. A PostToolUse guard report is a report, not a block.
+
+Termination: report to the path above, first line `VERDICT: <word>`, then stop. A bare "Done" means read the file; nothing is trusted from a final message alone.

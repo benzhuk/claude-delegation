@@ -1,0 +1,982 @@
+✔ found the four expected agent files (1.0291ms)
+✔ builder.md: has an explicit tools list (0.1125ms)
+✔ builder.md: omitClaudeMd is true (0.074ms)
+✔ builder.md: declares a model (0.082ms)
+✔ builder.md: tools list never names Agent or Task (0.1863ms)
+✔ integrator.md: has an explicit tools list (0.6654ms)
+✔ integrator.md: omitClaudeMd is true (0.0529ms)
+✔ integrator.md: declares a model (0.0423ms)
+✔ integrator.md: tools list never names Agent or Task (0.0741ms)
+✔ reviewer.md: has an explicit tools list (0.0868ms)
+✔ reviewer.md: omitClaudeMd is true (0.0442ms)
+✔ reviewer.md: declares a model (0.0641ms)
+✔ reviewer.md: tools list never names Agent or Task (0.0446ms)
+✔ runner.md: has an explicit tools list (0.0666ms)
+✔ runner.md: omitClaudeMd is true (0.1092ms)
+✔ runner.md: declares a model (0.0425ms)
+✔ runner.md: tools list never names Agent or Task (0.1006ms)
+✔ safety blocks are byte-identical across all four agent files (0.1631ms)
+✔ builder and runner ship a model that is neither opus nor fable (0.0562ms)
+✔ builder body names all six state file sections, in order (0.0648ms)
+✔ the safety block still carries every rule it is there to carry (0.0627ms)
+✔ the safety block stays under the 2100-character token-cost ceiling (0.0333ms)
+✔ builder.md states it never writes the work record (0.124ms)
+✔ reviewer.md states a bug-fix review carries the four C4 fields (0.0643ms)
+✔ the pinned scratch sentence appears, verbatim and on its own line, in all eight role files (1.4091ms)
+✔ the worktree location rule is stated exactly once in each of the five places, outside any safety block (0.5935ms)
+✔ the guard-report sentence is on its own line, exactly once, in each of the eleven places, outside any safety block (1.3546ms)
+✔ byte-stability: every generator is a pure function of its inputs — called twice, identical bytes (1.2983ms)
+✔ --apply never appears in the collect job's generated text, for any of the three schedulers (0.2994ms)
+✔ scheduledCommandArgv (janitor job) is exactly <node> <pluginRoot>/scripts/janitor.mjs --record --repo <repo> [--host <h>] --apply (0.4656ms)
+✔ C3/F15: the janitor job's default argv carries --apply; there is no --record-only installer flag to remove it, and the user-value --apply refusal still fires (7.9215ms)
+✔ installed.json is byte-stable and matches the pinned seam shape exactly (key order included) (0.2177ms)
+✔ resolveRepo: --repo overrides everything; else ~/.agents/janitor-repo if present; else the repo default (11.0311ms)
+✔ resolveRepo (lane 65 item 5): defaults to Code/zhuk-infra/claude-delegation when it exists, even if the old path also exists (2.9328ms)
+✔ resolveRepo (lane 65 item 5): falls back to the old Code/claude-delegation only when the new path is absent (1.8931ms)
+✔ resolveRepo (lane 65 item 5): the existence check is injectable, an unreadable path counts as absent, and the override file and --repo still win (0.3723ms)
+✔ refuses to install from a temporary/worktree checkout unless --force-root, and writes nothing when refused (4.971ms)
+✔ L2: a plugin root inside the installed Claude plugin cache installs without --force-root (11.5489ms)
+✔ L2 review: the allowlist itself rejects this host's real worktree layout and accepts only the two caches (0.8311ms)
+✔ L2: a real worktree name, a durable non-cache path, and a fresh non-cache root all refuse under --dry-run and a real install, on the pluginRoot check alone, nothing written (29.6705ms)
+✔ --force-root (tests only) bypasses the checkout-durability refusal (8.4937ms)
+✔ --remove is never gated by the checkout-durability check (only install creates a new reference) (1.3744ms)
+✔ a real install (fixture plugin root) writes the systemd unit+timer and installed.json, idempotently (19.3748ms)
+✔ --dry-run writes nothing at all, even the containing directory, but still reports the generated content (3.8679ms)
+✔ --remove --dry-run reports would-remove, never claiming a file was removed when it was not (19.0764ms)
+✔ --remove deletes only the files it made (marker-checked) and leaves a same-named foreign file alone (22.1893ms)
+✔ --remove on a host where nothing was ever installed reports absent, not an error (1.0127ms)
+✔ seam review round 1, M1: installed.json is name-owned — a second --name install is refused, and --remove for that name never touches a different name's installed.json (17.8188ms)
+✔ --hour sets the systemd OnCalendar hour and installed.json's hour field (13.1027ms)
+✔ --hour out of range (or non-integer) refuses outright and writes nothing, rather than silently falling back (16.7825ms)
+✔ J1 review round 2, m2: a valueless --hour (nothing follows, or another --flag follows) refuses rather than silently falling back to the default hour (5.6897ms)
+✔ --enable runs the platform's own enable command through the injected exec, never spawning a real one — and is skipped entirely under --dry-run (11.9877ms)
+✔ J1 review round 2, m3: a failing post-remove daemon-reload is reported in result.commands, not swallowed silently (16.2577ms)
+✔ J1 review round 1, M1: a foreign (unmarked) same-named unit blocks --enable entirely, on both install and --remove — zero exec calls, the user's unit left alone (21.6634ms)
+✔ windows and macos generation (text-only; schtasks/launchctl are never executed on this host) (36.3278ms)
+✔ J1 review round 1, B1: --repo or --host carrying the literal string --apply is refused outright, nothing written (6.1002ms)
+✔ J1 review round 1, B1: an ordinary space-bearing repo (no --apply) still generates a single, correctly quoted ExecStart argv element (62.1069ms)
+✔ J1 review round 1, M5: refuses when the janitor script is missing, or the repo is not a git checkout — nothing written, exit 1 (6.6724ms)
+✔ L1: --help prints usage, exits 0, and writes nothing — even against the installer's own default (worktree) pluginRoot (0.5386ms)
+✔ L1: an unrecognized flag (--bogus) exits 2 and writes nothing (0.4149ms)
+✔ L1: a stray positional argument exits 2 and writes nothing (0.3905ms)
+✔ L1 review: a valueless/empty --repo/--host/--name, or a repeated value flag, refuses and touches nothing (30.7466ms)
+✔ C2: scheduledCommandArgv for --job collect-status is exactly <node> <pluginRoot>/scripts/collect-status.mjs --repo <repo> --to <slug>, plus --host and --out when given, plus --stale-hours <n> always last (lane 33 F1, default 2) (0.1883ms)
+✔ C2: installedJsonText for --job collect-status is schema, repo, node, every, staleHours, scheduler, name, to — key order exact, no hour field at all (lane 33 F1) (0.0796ms)
+﹣ C2: systemd unit and timer text for --job collect-status — exact bytes (0.0311ms) # the systemd generator runs only on linux hosts, and these fixtures are POSIX paths
+✔ C2: Windows TimeTrigger/Repetition and launchd StartInterval shapes for --job collect-status, both carrying --stale-hours (lane 33 F1) (0.5307ms)
+﹣ C2: --stale-hours 0.5 appears in the systemd ExecStart too (all three generators, lane 33 F1) (0.0282ms) # the systemd generator runs only on linux hosts, and these fixtures are POSIX paths
+✔ C2: --stale-hours bounds — 0.1 and 48 accepted, out of range or non-numeric refused (exit 1, nothing written), default is 2 (52.2259ms)
+✔ C2: --stale-hours 0.5 given to main reaches every platform's written command and installed.json (lane 33 F1) (9.6817ms)
+✔ C2: a real install (--job collect-status) writes to ~/.agents/collect/, never ~/.agents/janitor/, with installed.json matching the pinned K1 shape (20.2115ms)
+✔ C2: --every bounds — 5 and 60 accepted, out of range or non-integer refused, default is 15 (42.4706ms)
+✔ C2: --to is required for --job collect-status and refused for --job janitor-record; slug pattern enforced (5.7011ms)
+✔ C2: --hour is refused for --job collect-status; --every is refused for --job janitor-record (4.5531ms)
+✔ C2: --job with an unrecognized value is refused; --out is refused for --job janitor-record (5.9316ms)
+﹣ C2 review round 1, m2: --out is resolved to an absolute path (never left relative to the repo's own WorkingDirectory), and a control character (e.g. a real newline) is refused outright (0.0539ms) # the systemd generator runs only on linux hosts, and these fixtures are POSIX paths
+✔ C2 (contracts.md K3 B1 twin): --to or --out carrying the literal string --apply is refused outright, nothing written (4.7534ms)
+✔ C2 (seam, K1): installed.json records both jobs, each in its own name-owned file — installing collect-status never touches the janitor's installed.json and vice versa (22.3119ms)
+✔ C2 (seam, K3): --remove --job collect-status removes only the collect job's own files, leaving the janitor's timer/service/installed.json in place (23.7036ms)
+✔ C2 review round 1, M1: a collect-status install/remove sharing the janitor's own --name must never touch the janitor's units — each job gets its own marker (16.2654ms)
+✔ C2: --job collect-status refuses when collect-status.mjs is missing from the plugin root — job-scoped, distinct from the janitor's own missing-script message (3.0533ms)
+✔ C2 review round 2, N1: on Windows, --name reuse across jobs is refused before any write or exec (Task Scheduler's single task-name namespace) (30.9938ms)
+✔ Lane40: knowledge-triage command and XML pin disabled first run, interactive token, and PT2H (0.1781ms)
+✔ Lane40: the other two jobs keep their generated bytes after the third job is added (0.2735ms)
+✔ Lane40: Windows install registers disabled, queries, enables, then launches immediately (20.7324ms)
+✔ Lane40: --first-run refuses missing and invalid calendar dates before writes (10.3243ms)
+✔ Lane40: installer refuses a nonwriter with exit 2 before writes or scheduler calls (4.7601ms)
+✔ Lane40: removing triage leaves janitor and collect job artifacts byte-identical (27.8851ms)
+✔ C2 review round 2, N2: --remove --job collect-status without --to must not throw on darwin or win32 (launchdPlist argv coercion) (27.6198ms)
+
+--- printed report-mode run against a fixture ---
+SWEEP (multi-root, lane 74):
+mode: report only; repos scanned: 5; worktrees owned by an open record: 3
+- [dirty-worktree-archive] would-archive-then-remove: C:/Users/benzh/AppData/Local/Temp/sealed-home-bPghA4/fixtures/Code/rep-46172-12/.claude/worktrees/dying (feature/dying) - 2 changed path(s), idle 47h; report mode
+--- end ---
+▶ roots (item 2): a list, not one pinned repo
+  ✔ finds every repo under Code, a second repo included; never BTO, never dotfiles, honours an exclude list (1970.5716ms)
+✔ roots (item 2): a list, not one pinned repo (1971.052ms)
+▶ ownership (item 2): owned by an open record, or an orphan
+  ✔ a Worktree: branch, path or territory branch is owned while the record is open; accepted or none is orphan (1017.792ms)
+✔ ownership (item 2): owned by an open record, or an orphan (1017.9508ms)
+▶ dirty worktree: report mode by default, archive-then-remove when the policy says so
+  ✔ report mode (no policy, even with apply): prints what it would do and changes nothing (1402.8421ms)
+  ✔ a policy listing the class without --apply still only reports (1497.0247ms)
+  ✔ act mode: tracked edit and untracked file land on origin as archive/..., then the worktree is gone (3900.2999ms)
+  ✔ an owned worktree is never touched, even in act mode (1975.6779ms)
+  ✔ not idle 24 h: kept (2050.1143ms)
+  ✔ ignored content would be lost: not removed, reported with the count (3383.8206ms)
+  ✔ no resolvable git identity: skipped and reported, nothing removed, no identity set (2589.7086ms)
+✔ dirty worktree: report mode by default, archive-then-remove when the policy says so (16800.087ms)
+▶ unmerged local-only branch
+  ✔ report mode, then act: pushed as archive/..., deleted locally; owned, remote-backed and merged ones stay (7737.5357ms)
+✔ unmerged local-only branch (7737.8499ms)
+▶ merged origin branches: report only
+  ✔ lists a merged origin branch with no record and never deletes it (2870.819ms)
+✔ merged origin branches: report only (2870.916ms)
+▶ deregistered folders (item 2, item 3, autonomy 5)
+  ✔ lists a folder with a broken .git link and a stray clone; archives the dirty clone; removal needs a hand when reclaim refuses (5793.9321ms)
+  ✔ the real reclaim bridge refuses a folder inside a checkout (dry run only) (3707.7401ms)
+✔ deregistered folders (item 2, item 3, autonomy 5) (9501.7982ms)
+▶ untracked files in a durable checkout (item 5, report part)
+  ✔ files older than 7 days are reported by path, younger ones are not, nothing is removed (2757.8635ms)
+✔ untracked files in a durable checkout (item 5, report part) (2757.9587ms)
+▶ policy file (item 7)
+  ✔ absent = report only; corrupt = acts on nothing; valid lists classes (11.4607ms)
+  ✔ archive ref names are archive/<slug>-<7 hex> (0.1392ms)
+✔ policy file (item 7) (11.7246ms)
+▶ review round 1 fixes
+  ✔ MAJOR 1: a closed record on main releases a worktree whose own checkout still holds the stale open copy (878.7199ms)
+  ✔ MAJOR 2: a probe that throws stops the sweep, keeps the rows already produced, and acts on nothing (1698.2597ms)
+  ✔ MAJOR 2: a process that holds the directory protects the dirty worktree (712.4925ms)
+  ✔ MAJOR 3: a deregistered dirty clone is held by the 24 h idle floor and by a live process (1152.2392ms)
+  ✔ MAJOR 4: a rejected archive push re-attaches HEAD, keeps the work, and the worktree keeps showing up (2131.1043ms)
+  ✔ MAJOR 4: a successful archive leaves no unpushed-archive row behind (1572.6864ms)
+  ✔ MAJOR 5: edits hidden by --skip-worktree are not archived-then-removed (869.5158ms)
+  ✔ MINOR 1: a master-default repo gets its branch rows; a repo with no resolvable main says so (1272.554ms)
+  ✔ MINOR 2: the policy exclude list applies to a registered worktree (601.2753ms)
+  ✔ MINOR 3: an origin that belongs to BTO (default pattern, or the policy's excludeRemotes) is never archived to (1252.8117ms)
+✔ review round 1 fixes (12142.1439ms)
+▶ main() wiring: existing runs unchanged, sweep is opt-in
+  ✔ without --sweep and without a policy file the output has no SWEEP section and the exit code is the same (6744.006ms)
+  ✔ --json carries a sweep key only when the sweep ran (6998.6942ms)
+  ✔ under node --test the default roots are never swept, even with --sweep and a policy file that names roots (814.6215ms)
+  ✔ a live process in a dirty worktree's directory keeps it, through main()'s own in-use check (1998.4267ms)
+  ✔ the record carries what the sweep did, and a failed sweep act makes an --apply run exit 1 (2204.1848ms)
+  ✔ a policy file turns the sweep on without a flag (7001.2483ms)
+✔ main() wiring: existing runs unchanged, sweep is opt-in (25761.6347ms)
+▶ review round 2 fixes
+  ✔ NEW MAJOR A: report mode and an empty act list never call the in-use probe (1694.0154ms)
+  ✔ MINOR C: a worktree archived but not removed keeps showing as a report-only row (761.5135ms)
+✔ review round 2 fixes (2455.6575ms)
+▶ refreshIfRegistered
+  ✔ never installs a timer that was never installed (3.765ms)
+  ✔ a registered timer pointing at an older release is re-registered from this one, repo hour and host kept (64.5864ms)
+  ✔ already on this release AND a recorded scheduler success: current, no scheduler call (40.1592ms)
+  ✔ the unit text names this release but no success is recorded: the refresh is retried, not trusted (19.3967ms)
+  ✔ a scheduler failure leaves no success record, so the next session retries (42.8615ms)
+  ✔ the scheduler commands share ONE deadline: per-exec bound 2 s, nothing once the budget is spent (0.4807ms)
+  ✔ registered but the unit file is gone: nothing is installed (14.9697ms)
+  ✔ a root that is not an installed plugin location is refused by the installer and the old unit is left alone (18.7829ms)
+  ✔ windows task xml (utf-16, quoted argv) is read for its baked root and re-registered (59.5921ms)
+✔ refreshIfRegistered (265.7707ms)
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-a')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'a.txt', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-b')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-a')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-b')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-c')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-d')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-ignored')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-safe')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-dirty')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-race')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-throw')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-locked')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'extra.txt', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-other')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feat-precious')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'precious.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'release/rc1')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-failremove')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-self')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-self-lc')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'local.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-e')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'unpushed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feat-amb')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-shellremains')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+✔ a merged, origin-confirmed, clean worktree is SAFE; a dirty worktree is JUDGMENT regardless of merge state (4938.9486ms)
+✔ --apply removes only the SAFE class; the dirty worktree and its branch survive untouched (4359.672ms)
+✔ the current worktree and its branch are never touched, and main is never deleted, even when merged+clean (2513.5494ms)
+✔ switch file ~/.agents/ws-off-janitor makes a run with real findings a silent exit 0 (1779.7537ms)
+✔ the master switch ~/.agents/ws-off also silences janitor (550.544ms)
+✔ vcs: none makes janitor exit 0 silently even with a dirty tree (475.3694ms)
+✔ matchesScratchPattern: matches basename-only patterns anywhere, and path patterns by relative path (0.2547ms)
+✔ matchesScratchPattern: a literal '?' in a pattern stays literal, never a regex quantifier (0.1786ms)
+✔ NEW-4: a scratch pattern that names a directory matches every file inside it, including nested paths and paths with a space (0.1903ms)
+✔ the four drift numbers are all present and numeric (or null for disk, if `du` is unavailable) (1027.0556ms)
+✔ source never contains a destructive git verb, a force flag, or exit(2), outside comments (branch -D excepted: exactly one sanctioned call site) (1.4202ms)
+✔ BLOCKER 1: a merged worktree holding a gitignored file with content is JUDGMENT, and --apply leaves both the directory and the ignored file on disk (4315.2493ms)
+✔ SAFE-CUT: --apply never removes a regular file anywhere - only a whole worktree directory, via git worktree remove (4085.7002ms)
+✔ BLOCKER 4: a worktree that becomes locked between classification and --apply is a logged, non-silent failure, never a clean exit (2902.4134ms)
+✔ BLOCKER 4b: applySafe accumulates into a caller-supplied log array, so main()'s outer catch can still report partial progress if anything ever throws past it (3009.8407ms)
+✔ MAJOR 5: a locked worktree is JUDGMENT with its lock reason, never SAFE (2941.868ms)
+✔ MAJOR 6: run from a linked worktree, the main working tree never appears in SAFE even if it happens to sit on a merged branch (5064.1116ms)
+✔ MAJOR 7: a branch named 'release' that points at main is JUDGMENT and survives --apply (1866.3892ms)
+✔ round-1 MAJOR: a local branch named origin/main does not fool the origin-confirmation proof (4732.0288ms)
+✔ round-1 MINOR: a worktree checked out on a protected branch name is JUDGMENT, never SAFE, and survives --apply (3757.0766ms)
+✔ round-1 MINOR: when a worktree-remove fails, its branch is not deleted this run, and both survive (2951.3468ms)
+✔ round-1: run FROM a linked worktree, that worktree never appears in SAFE and survives --apply (3707.1219ms)
+✔ round-1: run FROM a linked worktree reached via a lowercased path, it still never appears in SAFE (case-insensitive fs) (2696.8006ms)
+✔ NEW-2: in a repo with NO remote at all, a merged branch is JUDGMENT (not confirmed on origin), and survives --apply (2826.2016ms)
+✔ MAJOR 8: a malformed .agents/project.json exits 3, not 0, and says so on stderr (1077.1961ms)
+✔ MAJOR 10: an untracked scratch file with a space, and one with a non-ASCII character, are both flagged (917.4808ms)
+✔ J5: --json output carries a top-level wiring key with the checkWiring() shape (956.2745ms)
+✔ J5: the printed table's last section is WIRING, and janitor never acts on its results (display only) (1236.2555ms)
+✔ J5: a wiring check failure never breaks the janitor's own report (display only, wrapped) (938.4941ms)
+✔ round-2 MAJOR: a tag named refs/remotes/origin/main cannot fool the origin-confirmation guard when there is no origin remote (2874.701ms)
+✔ round-2 MINOR: a tag sharing a branch's name does not corrupt that branch's classification (2823.4124ms)
+✔ round-2 MINOR: a tag literally named 'main' does not make the protected main branch appear as a JUDGMENT candidate (1272.0194ms)
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'orphan.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'done.txt', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'runner-branch')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-moved')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feat-stale')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'wip.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'builder-fresh')
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-real-work')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'lane-w')
+Preparing worktree (checking out 'other-lane-work')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'lane-dirty')
+Preparing worktree (checking out 'other-lane-work-2')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-young')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-old-enough')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'y.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-default-floor')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-old-tip')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'old.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feat-remote-merged')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'other-lane-work-3')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-s1')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-s2')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-rec')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-sched')
+warning: in the working copy of '.janitor-test-marker-feature-sched', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-in-folder')
+warning: in the working copy of '.janitor-test-marker-feature-in-folder', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-in-folder-dirty')
+warning: in the working copy of '.janitor-test-marker-feature-in-folder-dirty', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-in-folder-young')
+warning: in the working copy of '.janitor-test-marker-feature-in-folder-young', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-stray-sibling')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-det')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feat-origin-only')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feat-local-only')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'feat-origin-delete.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'feat-local-only-delete.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feat-fetchfail')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feat-nofetch')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'feat-round2-major1.txt', LF will be replaced by CRLF the next time Git touches it
+janitor: --apply needs this run's own fetch; --no-fetch is report-only
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'feat-major1-defence.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feat-major2-latecommit')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'late.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feat-minor1-remote')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'other-narrow-branch.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'close-clean-1')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'close-dirty-1')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'close-ignored-1')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'close-repo-is-wt-1')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'close-cwd-1')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'build/p9-1')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'close-dry-1')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'idem-branch-survives-1')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-idle-unit')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-idle-acct2')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-idle-sub')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-idle-codex')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-idle-codex-oldstart')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-idle-apply')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-skipwt')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-changedsinceclassify')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-restorehint')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feat$x')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-rec-safe')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-rec-dirty')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-openproc-nolsof')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-partial')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'locked/f.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-throwcatch')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+janitor: applied {"action":"branch-delete","ref":"feature-throwcatch","ok":true,"sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","restore":null}
+janitor: --apply aborted partway: boom
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-idle-branchguard')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-idle-futuremtime')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-actoff')
+warning: in the working copy of '.janitor-test-marker', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+✔ round-2 MINOR: when git deregisters a worktree but an empty directory shell survives (Windows), the log says removed, not survived (3890.3127ms)
+✔ round-3 MINOR: a tag named refs/heads/main cannot fake 'merged' when the real main branch does not exist (1050.8006ms)
+✔ round-4 MAJOR: a merged branch checked out in the MAIN worktree is never SAFE, and appears as one honest JUDGMENT row (5001.2742ms)
+✔ round-4 MAJOR: a worktree moved aside (directory gone, git still registers it as prunable) - its branch and the prunable registration both survive --apply (3733.0456ms)
+✔ round-5 MINOR: an abandoned worktree on a stale UNMERGED branch is reported in JUDGMENT, not silently dropped from both tables (3677.8213ms)
+✔ T4: no docs/work directory at all is not a finding - judgment.workarounds is simply empty (1290.6177ms)
+✔ T4: an overdue workaround (remove when a past 'by <date>') is a JUDGMENT row and a finding (exit 1) (1272.4357ms)
+✔ T4: an open workaround (not yet due, or a worded condition) is a JUDGMENT row but never a finding by itself, and prints after untracked files (1292.4538ms)
+✔ T4: a record with no Work: id is skipped for workarounds, never guessed at, and never crashes (1535.226ms)
+✔ T4: gatherWorkarounds is exported and pure (no I/O beyond listRecords) - repeatable WORKAROUND lines on one record each become their own row (450.2964ms)
+✔ MAJOR 2: an unreadable docs/work entry (a directory named *.record.md) does not blind the whole report (1305.211ms)
+✔ J1.1: a worktree cut from main with zero commits is UNSTARTED - never SAFE, never lumped into the plain clean/dirty JUDGMENT reasons (1859.0225ms)
+✔ J1.1: an UNSTARTED branch (tip equals main's tip) is reported with its age and never reaches the merged/SAFE branch path (1669.3902ms)
+✔ J1.1: a genuinely --no-ff-merged, pushed branch is still classified SAFE (UNSTARTED never swallows real work) (2599.4536ms)
+✔ J1 review round 2 F1: a worktree and a branch cut from main stay UNSTARTED (never SAFE) even after another lane merges and pushes (3348.6717ms)
+✔ J1 review round 2 F1/F9: a DIRTY worktree cut from main is reported unstarted too, and only once (no duplicate branch row) (3075.946ms)
+✔ J1.2: a merged, on-origin, clean worktree younger than --min-age-hours is JUDGMENT, not SAFE, and reports its age against the floor (2479.5252ms)
+✔ J1.2: the same worktree IS SAFE once --min-age-hours is 0 - the age floor, not some other reason, was what held it back (2489.8538ms)
+✔ J1.2: a merged, on-origin BRANCH (no worktree) younger than the age floor is JUDGMENT, not SAFE (2378.0955ms)
+✔ J1.2: --min-age-hours defaults to 6 on the CLI when the flag is omitted (2523.7785ms)
+✔ J1 review round 2 F3: a branch re-created NOW at an old, already-merged commit is JUDGMENT 'younger than the age floor', not old-commit-time SAFE (2825.1759ms)
+✔ J1 review round 2 F4: an unknown age (null) is never treated as 'old enough' - classify() sends it to JUDGMENT, never SAFE (0.2121ms)
+✔ J1.3: a remote-only branch merged into origin/main is JUDGMENT with the exact delete command, and --apply never touches it (3026.6306ms)
+✔ J1 review round 2 F2: an unstarted PUSHED branch (a lane base cut from main) is never called 'merged into main' even after main advances, and gets no delete command (2912.8597ms)
+✔ J1.3: origin/<mainBranch> itself never appears as its own remote-class JUDGMENT row (1111.2938ms)
+✔ packet finding: the printed SAFE summary count always equals the table's own row count (computed from the same list, never a separate counter) (6131.3057ms)
+✔ J1.4: --record writes <dir>/<date>-<host>.json with the four drift numbers, SAFE/JUDGMENT counts, base sha and host, plus one drift.md line (2510.7463ms)
+✔ J1.4 / lane 65 item 7: a bare --record defaults to <home>/.agents/janitor-evidence/, never the watched repo (883.0657ms)
+✔ lane 65 item 7: an explicit --record <dir> still writes exactly there, and nothing lands under the default (1282.4526ms)
+✔ lane 65 item 7: the scheduled argv (bare --record, --host, --apply) on a clean fixture repo leaves `git status --porcelain` empty (1649.1ms)
+✔ lane 65 item 7: the same scheduled run reclaiming a merged worktree under .claude/worktrees/ still leaves the checkout clean (3247.7122ms)
+✔ lane 65 item 2: a merged, clean, aged worktree at <repo>/.claude/worktrees/<name> is SAFE (2922.2176ms)
+✔ lane 65 item 2: ... and the same worktree is still JUDGMENT when dirty or too young (location earns no exemption) (5382.4462ms)
+✔ lane 65 item 2: no location demotion - a merged, clean worktree OUTSIDE the folder is SAFE exactly as before (2564.5467ms)
+✔ J1 review round 1, m1: a bare --record <dir> --host <name>, driven through main(), writes the record under the given host, not os.hostname() (901.1445ms)
+✔ J1 review round 2 F7: --record is byte-identical given the same now/hostName - the same inputs must never write two different bytes (2623.2011ms)
+✔ seam review MEDIUM 2: a second same-day writeRecord call never overwrites the first run's removed list - both removals survive (946.9229ms)
+✔ J1.5: --outside lists rollout-backups/ws entries by size and date, recommending removal of everything but the newest two (39.4053ms)
+✔ J1.5: gatherOutside never throws and returns [] for a missing ~/.agents directory (0.5363ms)
+✔ J1 review round 2 F5: ws/* entries are always 'a person decides' - a live workspace's top-level mtime says nothing about activity inside it (39.7497ms)
+✔ J1 item 2: a branch (and its worktree) merged on origin only, with a stale local main, is SAFE - onOrigin decides, not local `merged` (3211.0776ms)
+✔ J1 item 2: a branch merged only into local main (never (re)pushed) stays JUDGMENT 'not confirmed on origin', even with origin present (2519.5642ms)
+✔ J1 item 3: a branch merged on origin but not in local main IS deleted under --apply - proves `git branch -D`, not `-d`, is what runs (3091.248ms)
+✔ J1 item 3: a branch merged only into local main (never pushed) is never deleted by --apply (2293.2347ms)
+✔ J1 item 1: a fetch that fails this run downgrades an already-origin-confirmed branch and worktree to JUDGMENT UNVERIFIABLE, never SAFE (3247.8304ms)
+✔ J1 item 1: --no-fetch skips the fetch entirely and labels the verdict 'as of last fetch, <age>' (3254.7481ms)
+✔ J1 round 2 MAJOR 1: --apply refuses to run at all under --no-fetch, so a stale view never reaches -D (3060.3924ms)
+✔ J1 round 2 MAJOR 1 (defence in depth): applySafe itself refuses every branch delete when its state did not come from a successful fetch this run (2333.5482ms)
+✔ J1 round 2 MAJOR 2: a commit made after gatherState but before applySafe survives - `-D` never deletes a tip it didn't itself just prove merged (3749.1311ms)
+✔ J1 round 2 MINOR 1: a failed fetch also downgrades the remote-branch class to UNVERIFIABLE, never a bare 'merged' verdict with a delete command (2520.9032ms)
+✔ J1 round 2 MINOR 2: FETCH_HEAD's mtime is trusted only when its own content names <main> at its CURRENT tip - a narrow fetch of a different branch must not reset the age to 'just fetched' (1618.9164ms)
+✔ J1 round 2 MINOR 3: a fetch failure's error text is exactly one line, even though git's own stderr is several (725.2563ms)
+✔ J1 round 2 MINOR 4: fetchOrigin's own git call is bounded by a timeout and disables an interactive terminal/credential prompt (0.8684ms)
+✔ J1 round 2 MINOR 5 (updated, lane 59 C5): SKILL.md's origin-is-the-record-of-truth text stays folded into an existing section; lane 59 adds exactly one new section, the Reclaim section, after the daily timer installer's own section (0.4388ms)
+✔ closeoutWorktree: removes a clean worktree and deletes its local branch with -d, never -D (1778.901ms)
+✔ closeoutWorktree: a dirty worktree is reported 'dirty', left in place, and its branch is refused (never forced) (1635.2606ms)
+✔ closeoutWorktree: an ignored-only file (no untracked/modified) is 'dirty' live, not just on --dry-run, and the file survives (2117.9177ms)
+✔ closeoutWorktree: F7 - refuses a worktree entry that IS (or contains) --repo, distinct from the main-worktree and cwd-containment checks (1240.9822ms)
+✔ closeoutWorktree: refuses the main worktree, and refuses the worktree containing cwd (1043.6634ms)
+✔ closeoutWorktree: R2-8/round-4 - a Worktree: naming a branch never checked out anywhere reports the worktree absent and still removes the local branch (554.22ms)
+✔ closeoutWorktree: R2-8 - a Worktree: given as an origin-branch-shaped value (origin/build/x) still resolves to the real linked worktree on that branch (1076.1861ms)
+✔ pathWithin: win32 fold - backslash separators and drive-letter case all compare equal, only a DIFFERENT path is not contained (0.3875ms)
+✔ pathWithin: posix - equal paths and a real subdirectory are 'within'; a sibling directory sharing a name prefix is not (0.2177ms)
+✔ pathWithin: MEDIUM 1 - a real child dir named '..live' is inside; an actual '..' escape is not, on posix and win32 (1.2275ms)
+✔ closeoutWorktree: --dry-run (dryRun: true) performs no git mutation and reports the same verdicts a live run would (1644.183ms)
+✔ closeoutWorktree: idempotent - a genuinely absent Worktree: (no directory, no registered worktree, no local branch) is 'absent' on both steps, not a refusal (483.6938ms)
+✔ closeoutWorktree: idempotent - a Worktree: whose directory is genuinely gone, but whose local branch still exists, goes on to remove that branch as usual (1365.6626ms)
+✔ closeoutWorktree: idempotent - a foreign-OS-shaped Worktree: value stays refused worktree-unresolved (never silently absent) (441.9457ms)
+✔ closeoutWorktree: idempotent - a Worktree: naming a real directory that exists but is not a registered worktree stays refused worktree-unresolved (449.4952ms)
+✔ closeoutWorktree: idempotent - --dry-run on a gone directory whose local branch survives deletes nothing (478.2845ms)
+✔ closeoutWorktree: classifier - hostAbsolute forced to win32 and to posix picks the right form as native vs foreign (501.1925ms)
+✔ F1: idleHours() reads the newest of the worktree dir mtime, git-admin mtimes, and ~/.claude/projects/<slug> entries (1169.7647ms)
+✔ F1: idleHours() returns NaN (unknown, never idle) when it finds no candidate mtime at all (40.1538ms)
+✔ F1 (review finding 1): idleHours() reads a live session under a CLAUDE_CONFIG_DIR account (~/.claude-acct2), not only the plain ~/.claude (1104.7703ms)
+✔ F1 (review finding 1): idleHours() reads a session launched in a SUBDIRECTORY of the worktree (slug <wt-slug>-sub) (1138.6305ms)
+✔ F1 (review finding 1): idleHours() matches Claude Code's own hashed-slug truncation for a worktree path over 200 characters (43.8434ms)
+✔ F1 (review finding 1): idleHours() reads a Codex rollout session whose own payload.cwd is inside the worktree (1095.6742ms)
+﹣ review finding R2-1: an unreadable matched session directory (EACCES, not ENOENT) counts as unknown (NaN), never as idle (0.0678ms) # chmod 0 does not deny reads on win32
+✔ review finding R2-2: a Codex session started more than a day ago (still writing today) is not invisible to idleHours (1111.9896ms)
+✔ F1: --apply skips a SAFE worktree active in the last 24h, and removes it once idle past the floor (3643.7019ms)
+✔ review finding 10: isTreeClean() does not ENOBUFS-fail-closed on a repo whose `git ls-files -v` output exceeds the default 1 MB maxBuffer (15280.9642ms)
+✔ F16: a tracked file marked --skip-worktree with a real local edit is not tree-clean, even though git status reports nothing (1763.8064ms)
+✔ F16: applySafe re-checks isTreeClean immediately before removal and skips a worktree that changed since classify (2604.2151ms)
+✔ F2: applySafe logs a sha and a restore hint for a removed worktree and a removed branch (2711.4212ms)
+✔ review finding R2-3: a restore hint whose branch name is not provably inert (e.g. contains `$`) is null, but the sha is still there to restore by hand (2688.5338ms)
+✔ F2: --record's JSON gains act/removed/safeLeft, and the drift.md line gains a safe=/removed= suffix (3864.996ms)
+﹣ review finding 2: a SAFE worktree with a live process sitting in it (cwd) survives --apply even once idle past the floor (0.0498ms) # the /proc/[pid]/cwd probe is linux-only; darwin (lsof) and win32 (rename probe) use different mechanisms this fixture cannot exercise on this host
+﹣ seam review MEDIUM 1: a SAFE worktree with a live process sitting in a real '..live' child dir is still refused, not misread as outside (0.0259ms) # the /proc/[pid]/cwd probe is linux-only; darwin (lsof) and win32 (rename probe) use different mechanisms this fixture cannot exercise on this host
+✔ review finding R2-4: a failed in-use check (darwin, no lsof on PATH) is labelled 'in-use check failed', never 'a process has its cwd here' (2563.1423ms)
+﹣ seam review r2: worktreeHasOpenProcess fails closed inside a private PID namespace, discriminated through an injected statImpl (no real unshare needed) (0.0436ms) # the PID-1-ownership discriminator is linux-only, matching the /proc probe it guards
+✔ review finding 3: a partial (gone-anyway) worktree removal logs partial:true with a sha and a restore hint, and lands in the record's removed[] (3250.2477ms)
+✔ review finding 5: --record is written from the CATCH path when apply throws partway, including whatever it logged before throwing (2541.413ms)
+✔ review finding 8: an idle-floor skip blocks the branch delete on 'its worktree removal did not report success', not merely on 'still checked out' (2561.9953ms)
+✔ review finding 9: a future worktree mtime (idleHours negative) is labelled 'mtime in the future', not folded into 'active in last 24h' (2580.4867ms)
+✔ review finding R2-6: every applySafe(...) call in THIS file that passes `now` also passes an explicit `home`, never falling back to the real os.homedir() (0.9367ms)
+✔ F14: ~/.agents/ws-off-janitor-act treats --apply as record-only; the report's first line says so, and the record/drift still write (2542.4295ms)
+✔ F14: the master ~/.agents/ws-off switch still silences janitor entirely, even before the act-specific switch is checked (458.5018ms)
+✔ seam review r2: pathEscapesRoot - a '..'-prefixed name stays inside; '..', a '..'-prefixed sibling, another drive and a UNC path escape (0.6888ms)
+✔ checkRemovablePath: a target strictly under a listed root passes, returning its realpath (2.0854ms)
+✔ checkRemovablePath: the root itself is refused (a target must be STRICTLY under a root, never equal to it) (0.4134ms)
+✔ checkRemovablePath: underRootReason is a caller-supplied override (work-record.mjs keeps its own legacy wording) (0.7502ms)
+✔ checkRemovablePath: a root's predicate gates membership on the relative segments (work-record's --by-as-a-whole-segment rule) (3.0866ms)
+✔ checkRemovablePath: a relative target is refused as not absolute on this host (POSIX) (0.1596ms)
+✔ checkRemovablePath: notAbsoluteReason is a caller-supplied override (0.1069ms)
+✔ checkRemovablePath: platform win32 refuses a POSIX-shaped path as not absolute (0.0852ms)
+✔ checkRemovablePath: platform win32 accepts a drive-letter or UNC form past the absolute gate (0.1455ms)
+✔ checkRemovablePath: refuses a target that is a symlink, without following it (2.0383ms)
+✔ checkRemovablePath: refuses a target whose ANCESTOR is a symlink, changing its real path (2.969ms)
+✔ checkRemovablePath: refuses HOME exactly (0.7585ms)
+✔ checkRemovablePath: refuses a target that is not a directory by default; allowFile:true admits a regular file (1.11ms)
+✔ checkRemovablePath: allowFile:true still refuses a symlink, even one pointing at a regular file (1.699ms)
+✔ checkRemovablePath: repoRoots - equal/contains/lies-inside are each refused with the caller's own kind text, checked in repoRoots order (6.6602ms)
+✔ checkRemovablePath: repoRoots does not refuse a target that is a sibling of a protected path (2.2348ms)
+✔ checkRemovablePath: an absent target (ENOENT) is reported absent, not refused (0.7736ms)
+✔ checkRemovablePath: a non-ENOENT lstat error is refused (could not stat), not reported absent (0.9077ms)
+✔ checkRemovablePath: a realpath failure AFTER a successful lstat (a TOCTOU race) is reported absent (1.7098ms)
+✔ checkRemovablePath: allowFile:true refuses something that is neither a file nor a directory (0.7139ms)
+✔ F12/LOW 12: a repoRoots entry whose basename literally starts with .. (not an escape) is still caught by contains/lies-inside (3.1565ms)
+✔ F12/LOW 12: a root whose basename literally starts with .. still admits membership normally (2.5939ms)
+✔ checkRemovablePath: string roots and { path, predicate } roots can be mixed in one call (3.2622ms)
+reclaim: no path given
+reclaim: unknown flag --bogus
+reclaim: --branch needs both --branch <name> and --repo <dir>
+reclaim: --branch cannot be combined with path arguments
+reclaim: no path given
+reclaim: unknown flag --bogus
+reclaim: --branch needs both --branch <name> and --repo <dir>
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-b')
+warning: in the working copy of 'x.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-c')
+warning: in the working copy of 'y.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/a.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'main')
+warning: in the working copy of 'unpushed.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-live')
+warning: in the working copy of 'x.txt', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+Preparing worktree (checking out 'feature-r')
+warning: in the working copy of 'x.txt', LF will be replaced by CRLF the next time Git touches it
+✔ no path given: exit 2, usage error to stderr not stdout (4.832ms)
+✔ unknown flag: exit 2 (3.306ms)
+✔ --branch without --repo: exit 2 (3.4727ms)
+✔ --branch combined with a path: exit 2 (3.415ms)
+✔ F14: kill switch refuses every argument, exit 3, nothing removed (5.9967ms)
+✔ F14: kill switch refuses every argument, exit 3, nothing removed (win32 host) (4.7478ms)
+✔ argv usage errors: no path, unknown flag, --branch without --repo - all exit 2 (win32 host) (6.0211ms)
+﹣ F8: target equal to process.cwd() is refused (0.0803ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+✔ F7: a raw argument carrying a literal .. segment is refused before any resolution (3.2115ms)
+﹣ S: happy path removes with fs, dry-run removes nothing (0.1159ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ S: session id mismatch is refused (0.0448ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ S: unset session id is refused (0.0345ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ S: the scratchpad directory itself is refused, not just its contents (0.0319ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ T: happy path removes with fs, dry-run removes nothing (0.0208ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+✔ T: happy path removes with fs, dry-run removes nothing (win32 host) (95.0655ms)
+﹣ T: whole delegation-<name>-XXXX directory removes as one unit (0.0475ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ T: a top dir not prefixed delegation- is refused (0.0225ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ T: owned by another uid is refused (no root required - inject ctx.uid) (0.0177ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ F3: a nested linked-worktree .git FILE inside a T dir is refused (0.0176ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+✔ F3: a nested linked-worktree .git FILE inside a T dir is refused (win32 host) (48.8667ms)
+﹣ F3: a nested repo with a non-empty worktrees/ subdir is refused (0.0428ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ T dir containing a path from the cwd's own git worktree list is refused (0.0229ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ a symlink target is refused, never followed (0.0202ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ a target equal to HOME is refused (0.0166ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ an absent target does not block other arguments and does not fail the run (0.0333ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+✔ one refusal among many arguments removes nothing at all (3.4333ms)
+﹣ W: happy path - dry-run prints without removing, live removes via applySafe (F1 idle floor cleared) (0.0412ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ W: refused when younger than the classify-level age floor (real now) (0.0319ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ W: F1 - SAFE but not yet idle 24h is refused distinctly from the age floor (0.0431ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ W: a dirty worktree is refused, never removed (0.0177ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ W: the main worktree itself is refused (0.0186ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+✔ B: happy path removes a SAFE, merged local branch (4221.3526ms)
+✔ B: an unmerged branch is refused, never deleted (2356.381ms)
+✔ B: --repo not a git repository is refused (20.4231ms)
+﹣ HIGH1: a target INSIDE a linked worktree living inside a T dir is refused, even with cwd outside the worktree's repo (0.0503ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ HIGH1 (re-review finding 1): a plain repo's own main checkout, with NO other linked worktrees, is refused too - ruling r2's 'any .git entry' rule, not only 'has other linked worktrees' (0.0853ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+✔ HIGH1: a plain repo's own main checkout is refused too - ancestor .git refusal (win32 host) (607.984ms)
+﹣ HIGH1 (re-review finding 1, P2b): the T top itself is the plain repo - a target inside it is still refused (0.0534ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ HIGH1 (re-review finding 1, P2c): a plain repo whose .git/worktrees/ is empty (its one linked worktree already removed) is still refused (0.0342ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ H1d (mutation-provable): an unreadable ancestor .git entry refuses, rather than being treated as absent (0.0778ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ HIGH2 (re-review finding 2): a bare repo backing a live linked worktree with an unpushed commit is refused, and so is anything inside it (0.0315ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+✔ HIGH2: a bare repo backing a live linked worktree with an unpushed commit is refused (win32 host) (1549.8735ms)
+﹣ HIGH2 (re-review finding 2): a plain delegation-* dir with no git shape at all stays removable (0.0506ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ HIGH2: the class-root st_dev baseline catches a target that is ITSELF a differently-mounted directory (mutation M5b-provable: the fix's own baseDev change) (0.0253ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ HIGH2: a same-filesystem bind mount (st_dev identical) is refused via the mount table (injected mountinfo) (0.0203ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ HIGH2: an unreadable mount table fails closed (refused), never silently passes (0.021ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ H2c (mutation-provable): a target lying under an ANCESTOR bind mount is refused as 'lies under a bind mount', not just 'crosses' (0.0203ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ HIGH2 (measured, unshare -rm): a real same-device bind mount landing on a T target is refused and the sentinel survives (0.0191ms) # unshare -rm is not available in this environment
+﹣ re-review MEDIUM3 (mount check): a same-filesystem bind mount at a dir literally named '..m' is still refused, not misread as an escape (0.0202ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ re-review MEDIUM3 (F8 cwd check): a cwd of '<top>/..work' still refuses <top>, not misread as escaping it (0.0228ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ MEDIUM3: an rmSync failure prints a failed line and does not crash; later arguments still run (0.0185ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ seam review MEDIUM 3: a live process with its cwd inside a T target is refused, not silently removed (0.0204ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ seam review MEDIUM 3: an in-use check that cannot answer ('unknown') refuses with 'in-use check failed', never a confident match (0.0473ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+✔ seam review r2: checkOpenProcess refuses on every platform branch it cannot clear, on any host (0.3861ms)
+﹣ seam review r2: a live process whose cwd is a SUBDIRECTORY of the T target refuses the target (0.0313ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+✔ MEDIUM4: B refuses a merged branch still checked out in a SAFE worktree; dry-run says so too, not would-remove (4010.0617ms)
+✔ MEDIUM5: a removed B line carries a restore hint (2916.3094ms)
+﹣ MEDIUM5: a removed W line carries a restore hint (0.0575ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ M5c (mutation-provable): a partial W removal (git deregistered it, contents already gone) prints its own restore-hint line (0.026ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ MEDIUM6: a T argument given through a symlinked posixVarTmpRoot (darwin's own /var/tmp shape) is accepted and rmSync receives the REAL path (0.0222ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ MEDIUM6: a symlink ONE LEVEL BELOW the root is still refused (the rewrite never touches anything below the root) (0.021ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+✔ MEDIUM7 (M4-provable): a win32 claude-verify.lock sibling is never treated as S-shaped (checkS, pathImpl injection) (0.2237ms)
+✔ MEDIUM7: the win32 S segment is literally `claude`, case-insensitive, and IS accepted (checkS, pathImpl injection) (0.087ms)
+✔ MEDIUM7: a win32 T dir is delegation-<name>-XXXX, case-insensitive (checkT, pathImpl injection) (0.1401ms)
+✔ MEDIUM7: darwin S is refused with the unmeasured message when the tmpdir realpath is under /private/var/folders/ (4.9193ms)
+﹣ MEDIUM7 (M7-provable): a T top dir that is group- or world-writable is refused (0.0449ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ MEDIUM7 (M7-provable): an S claude-<uid> dir that is group- or world-writable is refused (0.0236ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ LOW10: an unreadable idle-age source gives 'idle age unknown', never 'active in last 24h' (0.021ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ LOW10: a negative idle age (clock running ahead) gives 'mtime in the future', never 'active in last 24h' (0.0536ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ LOW11: an unreadable subdirectory during the walk refuses the whole invocation, rather than silently skipping what it hides (0.0224ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ L11 (mutation-provable): an unreadable subdirectory's READDIR failure refuses too, not just an lstat failure (0.3075ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ LOW13: a target that becomes a symlink between validation and removal is refused at the re-check, not removed (0.0253ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+﹣ a path that is neither S, T, nor a live worktree is refused (0.0186ms) # baseCtx() forces platform:"linux" over real POSIX-shaped fake /tmp and /var/tmp roots - on a real win32 host, isHostAbsolute(raw, "linux") refuses every argument here as "not absolute on this host" before this test's own subject is ever reached (measured on the lane 59 Windows gate). Not a claim that the subject itself is POSIX-only; see the win32-context twins above (T happy/dry-run, F3, HIGH1, HIGH2, the kill switch, argv usage) for the same reclaim.mjs code paths exercised for real on win32.
+✔ LOW5 (Windows junction gate, deferred without a win32 host): a reparse-point junction inside a T dir must never let the sentinel it points at be swept up or emptied (70.7766ms)
+C:\Users\benzh\AppData\Local\Temp\sealed-home-F6rIpc
+✔ makeTempHome returns a fresh, empty, disposable home with the expected shape (4.8279ms)
+✔ makeTempHome never reuses a directory across calls (6.308ms)
+✔ makeTempHome blanks the messaging socket/token in env (never inherits the runner's session) (3.6613ms)
+✔ makeTempHome's env has none of the four repo-locating git names, even when the parent process has them set (4.5978ms)
+✔ makeTempHome writes files passed under opts.files, relative to the new home (10.0202ms)
+✔ FIXTURE_ROOT reaches the sealed child (0.4452ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 66.708
+✔ run-tests.mjs's runSealed forwards FIXTURE_ROOT through to the sealed child (169.8005ms)
+✔ cleanup removes the home directory (2.9544ms)
+✔ makeTempHome seeds .gitconfig with an includeIf scoped to the realpath'd fixtureRoot, forward slashes only (8.0435ms)
+✔ makeTempHome seeds .gitconfig-fixture with the Fixture identity, forward slashes only (6.5534ms)
+✔ gitIdentity: false leaves an empty global gitconfig (no identity anywhere under the seal) (2.607ms)
+✔ a fixture commit succeeds under the seal with the fixture identity (190.5647ms)
+✔ a repo built under the system temp dir but OUTSIDE fixtureRoot gets no identity under the seal (L-C7 canary) (94.8484ms)
+✔ a commit attempted outside the system temp dir has no identity under the seal and is refused (30.7452ms)
+✔ gitIdentity: false refuses a commit even under fixtureRoot (109.2787ms)
+✔ checkSeal fails in a child for an unsealed home, even when AGENTS_HOME is self-consistent (53.623ms)
+✔ checkSeal fails when AGENTS_HOME is unset (0.2059ms)
+✔ checkSeal passes inside a real sealed child process (49.0014ms)
+✔ checkSeal fails in a child when the seal is broken on purpose (AGENTS_HOME points elsewhere) (48.2237ms)
+✔ checkSeal fails in a child when AGENTS_HOME is not '<home>/.agents' (50.8739ms)
+✔ class test: exactly one construction of the fixture includeIf gitdir-scope directive anywhere in the repo (47.0677ms)
+✔ keep() and unregister() are the same function (alias) (2.4564ms)
+✔ keep() removes a home from the leak-fix registry without deleting it from disk (2.9967ms)
+﹣ a child killed with SIGINT removes its registered home, then re-raises so the OS reports the real signal (POSIX only) (0.051ms) # on win32, child.kill(signal) terminates the child directly without running any Node signal handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler
+﹣ a child killed with SIGTERM removes its registered home, then re-raises so the OS reports the real signal (POSIX only) (0.0256ms) # on win32, child.kill(signal) terminates the child directly without running any Node signal handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler
+﹣ a child killed with SIGHUP removes its registered home, then re-raises so the OS reports the real signal (POSIX only) (0.0264ms) # on win32, child.kill(signal) terminates the child directly without running any Node signal handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler
+﹣ a kept (unregistered) home survives SIGTERM - keep() truly removes it from the leak-fix registry (POSIX only) (0.0162ms) # on win32, child.kill(signal) terminates the child directly without running any Node signal handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler
+﹣ an existing SIGTERM listener receives one delivery and owns the eventual exit (F4, POSIX only) (0.0146ms) # on win32, child.kill(signal) terminates the child directly without running any Node signal handler - the run-tests.mjs stale sweep at suite start is the guarantee there, not this handler
+✔ handler registration is idempotent: exactly one listener per event, even after two homes (54.4594ms)
+wiring-check: unknown argument(s): --bogus
+wiring-check: unknown argument(s): --nope
+stale session: this session loaded delegation hooks 0.20.9, but 0.20.16 is installed, so hooks added since (the delete guard among them) are not running for it or its agents. The one fix: start a fresh session (claude --resume keeps the conversation). Off switch: ~/.agents/no-dispatch-guard
+✔ checkWiring returns { ok, results } and each result has id/state/why/fix (2.9712ms)
+✔ checkWiring never writes, deletes or installs anything - a read-only fs facade is enough (4.5017ms)
+✔ json_value: ok on match, stale on mismatch (string value never printed), missing on absent file or path (5.9354ms)
+✔ hook_present: ok when the substring is found on that event, missing otherwise or when the file is absent (3.5181ms)
+✔ hook_absent: ok when the substring is not found (or the file is absent), stale when it is still there (4.5317ms)
+✔ hook checks distinguish valid absence from malformed selected hook containers (11.4191ms)
+✔ file_exists / file_absent (1.4264ms)
+✔ file_fresh: ok within the window, stale once past it, missing file is 'stale' by default and 'info' with whenMissing override (1.969ms)
+✔ required file evidence distinguishes known absence from inaccessible or corrupt evidence (6.8644ms)
+✔ switch: known paths are informational, with ON when present and off when absent (1.1046ms)
+✔ switch reports unknown when its path cannot be inspected (0.6546ms)
+✔ env_presence: 'info' with the full why-string ending in (set) when the var is set, and (not set) when absent - never missing/stale either way (0.4743ms)
+✔ env_presence: an empty string, '0' or 'false' in the var still counts as absent/present by Boolean() coercion, and never leaks into missing/stale (0.489ms)
+✔ checkWiring defaults env to process.env when a caller omits the argument entirely - an existing caller with no env key keeps working (0.5001ms)
+✔ an existing caller passing no env key at all (the pre-P1 shape) still returns { ok, results } unchanged for non-env_presence checks (0.417ms)
+✔ an unknown check type is unknown and prevents green (0.2998ms)
+✔ a check whose evaluation throws is unknown, private, and not a crash (0.669ms)
+✔ selected malformed check definitions are unknown before filesystem evaluation (0.4701ms)
+✔ an explicit empty hook substring remains the documented any-command match (5.4814ms)
+✔ invalid rows produce bounded input uncertainty before valid rows are merged (0.8383ms)
+✔ expandHome expands a leading ~ and leaves other paths untouched (0.1043ms)
+✔ expandPluginRoot expands a leading ${CLAUDE_PLUGIN_ROOT} and leaves other paths (including ~) untouched (0.0907ms)
+✔ checkWiring resolves a ${CLAUDE_PLUGIN_ROOT}-prefixed file field against opts.pluginRoot, independent of home (3.2386ms)
+✔ checkWiring defaults pluginRoot to env.CLAUDE_PLUGIN_ROOT, then to this script's own install directory - never process.env directly (6.0307ms)
+✔ a check with a platforms array is skipped entirely on a non-matching platform (1.6038ms)
+✔ mergeChecks: a private-list id wins on a collision; a private-only id is appended; order is stable (0.49ms)
+✔ checkWiring merges the default public list with an optional ~/.agents/required-wiring.json when present (2.3356ms)
+✔ a missing private wiring list is normal (0.6105ms)
+✔ malformed or unreadable public and private list inputs are unknown (1.9687ms)
+✔ checkWiring's own default list and machinery never read or name ~/.agents/notes/inboxes.json unprompted (3.0992ms)
+✔ scripts/required-wiring.default.json parses and contains the flusher heartbeat and the five named switches (0.2906ms)
+✔ the default list names nothing private to the owner's machines (no absolute /Users or /home path, no username) (0.2562ms)
+✔ the shipped list's pane-note-slug row is env_presence over NOTE_SLUG, and stays info in both directions through checkWiring itself (0.6996ms)
+✔ CLI --line stays silent for pane-note-slug whether or not NOTE_SLUG is set - env_presence never reaches printLine's missing/stale path (99.2445ms)
+✔ the shipped list gained exactly eight new checks: two hook_present (exact command+matcher), four file_exists, one json_value, one file_fresh with a requiresFile gate (0.754ms)
+✔ hook-delete-guard and hook-post-tool-use-inbox: ok against this repo's own real hooks/hooks.json, missing against an empty plugin root (1.1668ms)
+✔ hook-delete-guard's exact command+matcher pin does not match a commented-out, echoed, disabled, renamed-file or wrong-matcher hook - only the real parsed command string under the real matcher (20.1556ms)
+✔ note-send-shim and notes-dir: file_exists against ~/.local/bin/note-send and ~/.agents/notes (2.3132ms)
+✔ cross-session-inbound: missing when absent, stale when present but not 'accept', ok when 'accept', unknown when the settings file is unreadable or invalid JSON (15.9051ms)
+✔ janitor-last-run (file_fresh + requiresFile): the J1/J2 seam contract's exact state table (2.1238ms)
+✔ janitor-last-run: installed.json itself being unreadable/corrupt is unknown, not a crash and not silently ok (1.4437ms)
+✔ CLI: no flag prints a table and exits 1 against a scratch home with nothing configured (J2: the wiring check can now actually go red) (76.4148ms)
+✔ CLI --json prints a parseable { ok, results } object, and the exit code mirrors ok (47.8429ms)
+✔ CLI --json exits 0 when a fully-wired scratch home makes checkWiring().ok true (48.6567ms)
+✔ CLI --line prints nothing when nothing is missing or stale (a fully-wired scratch home has only info/ok results) (48.065ms)
+✔ CLI --line names lean-rules-file when ~/.agents/lean-rules.md is absent, and only that (everything else is wired) (48.4684ms)
+✔ CLI --line --hook (the SessionStart caller): still prints the line when something is flagged, but always exits 0 (65.6801ms)
+✔ CLI --line --hook against a bare scratch home (nothing configured) still exits 0 and prints the line (58.3905ms)
+✔ CLI --line prints one line naming what is missing when something is (50.7917ms)
+✔ CLI --line prints nothing when ~/.agents/ws-off is present, even with a missing check (ws-off only silences --line's output, never the exit code) (44.0434ms)
+✔ CLI --line: an fsImpl whose stat throws a non-ENOENT error for ws-off counts the switch as present, and the line stays silent (0.9233ms)
+✔ CLI --line keeps a throwing fsImpl accessor inside the ws-off fail-silent boundary (0.5117ms)
+✔ an injected opts.home wins over an ambient AGENTS_HOME (seam-delta precedence fix) (1.6891ms)
+✔ CLI: an unknown flag is a usage error, exit 1, and never a stack trace (42.4072ms)
+✔ main() as a function (not a subprocess) returns 0 for known flags and 1 for an unknown one - a scratch home only, never the real one (0.8299ms)
+✔ main reports an unexpected dependency failure as bounded unknown without leaking its error (0.7249ms)
+✔ a check with NO type field is unknown and never silently dropped (0.3998ms)
+✔ a private-list entry naming inboxes.json is refused before any fs call, whatever type it claims (0.3971ms)
+✔ a check naming inboxes.json in ANY letter case is refused before any fs call, and nothing is read out of it (1.2716ms)
+✔ P7: --line prints the stale marker and the exit code goes red, even though checkWiring's own findings are all ok (6.3256ms)
+✔ P7: --hook keeps exit 0 while stale, but the line still prints (same rule as any other flagged finding) (6.7435ms)
+✔ lane 68: --hook is silent about staleness when not stale, and when ~/.agents/ws-off is present (12.0458ms)
+✔ lane 68: bare --line keeps the long stale-session text (only --hook changed) (7.3608ms)
+✔ P7: not stale (running equal to the installed entry) prints nothing extra and the exit stays green (7.3025ms)
+✔ P7: not stale (running newer than every entry) prints nothing extra and the exit stays green (6.0694ms)
+✔ P7: ws-off silences the printed line but the exit code stays red while stale (never silences the exit) (6.3033ms)
+✔ P7: a non-cache scriptPath (the real repo-checkout shape) is not stale (4.7183ms)
+✔ P7: with no scriptPath override at all, main() defaults to THIS repo's own real wiring-check.mjs - never stale in this suite (4.9392ms)
+✔ P7: a staleness read that throws never crashes main() and is treated as not stale (6.2842ms)
+✔ P7: CLI subprocess through the real file - copying this script into a fake cache dir proves the CLI wrapper (not just an injected opts.scriptPath) reads its own real location (91.9089ms)
+✔ MINOR 4: --json keeps stdout exactly parseable and puts the stale reason on stderr (5.5668ms)
+✔ MINOR 4: --json prints nothing extra to stderr and stays green when not stale (6.6726ms)
+✔ MINOR 4: table mode (no flag) prints the stale line too, and goes red (5.9554ms)
+✔ MINOR 4: table mode prints nothing extra and stays green when not stale (5.7195ms)
+✔ hooks.json runs wiring-check.mjs --line --hook on SessionStart, pointed at a real file, with a timeout (0.3643ms)
+✔ lane 74: --hook calls the timer refresh once, after its own output, with the injected home; bare --line never does (9.0834ms)
+✔ lane 74: a refresh that throws never changes the hook's exit code or output (fail open) (21.0335ms)
+✔ lane 74: a registered timer from an older release is re-registered through the hook, with an injected install (no scheduler is reached) (16.3707ms)
+✔ lane 74: --hook with a scratch home that has no timer registered stays silent and calls nothing real (53.1257ms)
+Preparing worktree (checking out 'build/wt-clean-1')
+Preparing worktree (checking out 'build/wt-dirty-1')
+Preparing worktree (checking out 'build/wt-ignored-1')
+Preparing worktree (checking out 'build/wt-cwd-1')
+Preparing worktree (checking out 'scratch-worktree-branch')
+Preparing worktree (checking out 'build/wt-absent-1')
+Preparing worktree (checking out 'build/wt-dry-1')
+Preparing worktree (checking out 'build/ob-notown-1')
+Preparing worktree (checking out 'build/ob-active-1')
+Preparing worktree (checking out 'build/ob-unmerged-1')
+Preparing worktree (checking out 'build/ob-ff-1')
+Preparing worktree (checking out 'build/ob-delete-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/sc-reporoot-1')
+Preparing worktree (new branch 'build/sc-wtlist-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/sweep-exclude-warn-1')
+Preparing worktree (checking out 'build/sweep-multiform-1')
+Preparing worktree (checking out 'build/sweep-multiform-1')
+Preparing worktree (checking out 'build/sweep-multiform-1')
+Preparing worktree (checking out 'build/sweep-multiform-abspath-1')
+Preparing worktree (checking out 'build/sweep-delete-1')
+Preparing worktree (checking out 'build/sweep-unmerged-1')
+Preparing worktree (checking out 'build/sweep-noowner-1')
+Preparing worktree (checking out 'build/sweep-active-1')
+Preparing worktree (checking out 'build/sweep-excluded-1')
+Preparing worktree (checking out 'build/sweep-apply-delete-1')
+Preparing worktree (checking out 'build/sweep-apply-keep-1')
+Preparing worktree (checking out 'build/sweep-stale-1')
+Preparing worktree (checking out 'build/sweep-lease-moved-1')
+Preparing worktree (checking out 'build/r26-denydeletes-1')
+Preparing worktree (checking out 'build/r23a-1')
+Preparing worktree (checking out 'build/r22-sweep-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (new branch 'build/r23b-inner-1')
+Preparing worktree (checking out 'build/r23c-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (new branch 'build/r24-inner-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/r1-Fallback-1')
+Preparing worktree (checking out 'build/r1-absent-1')
+Preparing worktree (checking out 'build/r1-nomatch-1')
+Preparing worktree (checking out 'build/r1-p6-1')
+Preparing worktree (checking out 'build/r1-p6-other-1')
+Preparing worktree (checking out 'build/idem-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/idem-stale-1')
+Preparing worktree (checking out 'build/scratch-fixture-1')
+Preparing worktree (checking out 'build/gitdir-leak-ff-1')
+Preparing worktree (checking out 'build/gitdir-leak-sweep-1')
+Preparing worktree (checking out 'build/gitdir-leak-close-1')
+✔ closeoutRecord: a clean worktree is removed and its local branch deleted with -d (never -D); the origin's own tip proves the merge, so no force is ever needed (1897.4648ms)
+✔ closeoutRecord: a dirty worktree is reported 'dirty' and left in place - never forced (1517.1684ms)
+✔ closeoutRecord: F1 - a worktree with ONLY an ignored file (no untracked/modified) is still 'dirty', left in place, and the ignored file survives (1597.6083ms)
+✔ closeoutRecord: refuses the main worktree (571.3857ms)
+✔ closeoutRecord: refuses the worktree that contains process.cwd() (1414.0435ms)
+✔ closeoutRecord: merge proof - an Artifact: sha not an ancestor of origin/main refuses every one of the four cleanup steps, with a fetch that itself succeeds (569.5915ms)
+✔ closeoutRecord: merge proof with Artifact-repo: fetches and checks ancestry in repo B, refusing when the artifact is not merged into repo B's origin/main (877.4163ms)
+✔ closeoutRecord: Artifact-repo: refuses the worktree/branch/origin-branch cleanup steps as manual, and never touches repo B's branch (1262.8047ms)
+✔ closeoutRecord: F1 - the scratch step also sees Artifact-repo:'s own worktrees, refusing a scratch directory that contains one (930.7212ms)
+✔ closeoutRecord: F1 - an unreadable Artifact-repo: worktree list refuses the scratch step, never removes (820.6389ms)
+✔ closeoutRecord: F4 - the merge proof fetches inside Artifact-repo: itself, seeing past a stale local origin/main there (1435.7658ms)
+✔ closeoutRecord: F4 - a fetch failure inside Artifact-repo: refuses every step UNVERIFIABLE, never silently ignored (776.7383ms)
+✔ closeoutRecord: R2-8/round-4 - a Worktree: naming a branch whose worktree directory is already gone reports the worktree step absent and still removes the branch, exit 0 (1578.3013ms)
+✔ closeoutRecord: --dry-run performs no git mutation for the worktree/branch steps and prints 'would ...' lines (1384.3664ms)
+✔ closeoutRecord: origin-branch refuses a branch not under build/ (main, docs/*, feat/*) (578.1044ms)
+✔ closeoutRecord: origin-branch refuses a branch not under build/ - docs/some-file (M6) (532.681ms)
+✔ closeoutRecord: origin-branch refuses a branch not under build/ - feat/some-feature (M6) (570.7193ms)
+✔ closeoutRecord: origin-branch refuses a branch that is not this record's own (another record, of ANY status, already claims the same branch) (1273.9651ms)
+✔ closeoutRecord: origin-branch refuses a branch named by another record under docs/work/ whose Status is neither closed nor withdrawn (1260.062ms)
+✔ closeoutRecord: origin-branch refuses a tip that is not an ancestor of origin/main (never merged) (784.2567ms)
+✔ closeoutRecord: origin-branch refuses a tip equal to origin/main's current sha (818.6321ms)
+✔ closeoutRecord: origin-branch refuses a tip that is an ancestor of origin/main but was fast-forwarded in, never behind a --no-ff merge commit (1440.1305ms)
+✔ closeoutRecord: origin-branch removes a branch merged via a --no-ff merge commit and proven safe, printing its tip sha and a restore command (1577.3737ms)
+✔ closeoutRecord/sweepOrigin: origin-branch's evaluateOriginBranch calls isRemoteBranchMergedIntoOrigin and refuses on it, as the last of the seven origin-branch checks (1.0374ms)
+✔ closeoutRecord: scratch step refuses when --by does not match the record's Lead-session: (890.1885ms)
+✔ closeoutRecord: scratch step refuses a path that does not resolve under a scratch root with --by as a whole segment strictly between the root and the target (1507.5759ms)
+✔ closeoutRecord: scratch step refuses the session directory itself (--by is not a whole segment STRICTLY between the root and the target) (1501.0699ms)
+✔ closeoutRecord: scratch step accepts the REAL scratch layout - <root>/<project>/<session-id>/scratchpad/<lane>, --by several segments below the root (1528.712ms)
+✔ closeoutRecord: scratch step refuses the session directory itself even under the deep real layout (--by still not strictly between root and target) (1569.3287ms)
+✔ closeoutRecord: scratch step refuses a value in the WRONG OS's path convention for the current host, via the test-only platform param (1714.5423ms)
+✔ closeoutRecord: scratch step refuses a symlinked target, and never follows it (1535.1245ms)
+✔ closeoutRecord: scratch step refuses a target whose ANCESTOR (not the target itself) is a symlink, changing its real path (1567.2751ms)
+✔ closeoutRecord: scratch step refuses the repo root, and refuses a path in git worktree list (1933.6555ms)
+✔ closeoutRecord: L5 replaced - scratch step REMOVES a directory containing an unregistered .git entry (the round-2 walk is dropped) (1550.2132ms)
+✔ closeoutRecord: scratch step reports an absent directory as 'absent', not an error, and exits 0 when every other step also removed/absent (1513.1868ms)
+✔ closeoutRecord: scratch step actually removes the directory on a live run, prints its path, and --dry-run leaves it in place (2830.6816ms)
+✔ closeoutRecord: exit 0 only when every step is removed or absent; the Log: closeout line is written only on a non-dry-run, and never on --dry-run (1985.0895ms)
+✔ parseSweepOriginArgs: --repo/--exclude are name/value pairs, --apply is a bare flag (0.2299ms)
+✔ parseSweepOriginArgs: F10 - a repeated --exclude accumulates, comma-joined, rather than the last one overwriting the rest (0.0627ms)
+✔ sweepOrigin: F10 - an --exclude entry matching no origin/build/* branch prints a warn line naming it (1186.6186ms)
+✔ sweepOrigin: F4 - an active record's Worktree: given as origin/-prefixed (origin/build/x) still keeps the branch, exactly like the bare form (1024.3571ms)
+✔ sweepOrigin: F4 - an active record's Worktree: given as refs/heads/-prefixed (refs/heads/build/x) still keeps the branch, exactly like the bare form (1033.3895ms)
+✔ sweepOrigin: F4 - an active record's Worktree: given as a trailing slash (build/x/) still keeps the branch, exactly like the bare form (1025.0971ms)
+✔ sweepOrigin: F4 - an active record's Worktree: given as the branch's absolute worktree path (resolved via git worktree list) still keeps the branch (1039.413ms)
+✔ sweepOrigin: dry run by default - lists every origin/build/* branch with its tip sha and a delete/keep verdict, deletes nothing (1654.0579ms)
+✔ sweepOrigin: 'not the record's own' is dropped (unlike close --closeout) - a branch no record names at all is still eligible for delete (1202.3033ms)
+✔ sweepOrigin: keeps a branch named by an active (not closed/withdrawn) record, exactly like close --closeout step 4 (1027.0122ms)
+✔ sweepOrigin: branches named in --exclude are added to the keep list, even when otherwise eligible for delete (993.8294ms)
+✔ sweepOrigin: --apply deletes only the branches marked delete, against the bare fixture origin, and prints each name/sha plus a restore command (1765.1634ms)
+✔ sweepOrigin: F2 - a branch merged-and-safe as of this repo's last fetch, but advanced with NEW unmerged work on origin since, is re-fetched and kept, never deleted from a stale tip (1540.9769ms)
+✔ sweepOrigin: L1 - --apply's delete is a lease against the exact evaluated tip; a branch that moved since evaluation is refused 'moved', never force-deleted (1682.9399ms)
+✔ sweepOrigin: R2-6 - a push denied by origin's own receive.denyDeletes is reported by its real reason, never mislabeled 'moved' (1652.9854ms)
+✔ sweepOrigin: R2-3(a) - a failed fetch refuses EVERYTHING (exit 2, UNVERIFIABLE), deletes nothing, and never even lists origin/build/* (924.1204ms)
+✔ sweepOrigin: R2-2 - a failed git worktree list refuses everything (exit 2, UNVERIFIABLE), never fails open (1012.0847ms)
+✔ closeoutRecord: R2-2 - a failed git worktree list refuses the origin-branch step (UNVERIFIABLE, exit 2), never silently proceeding as if no record claimed the branch (1048.6445ms)
+✔ closeoutRecord: LOW14 - an ABSENT scratch path is reported absent, not refused, even when git worktree list cannot be read (1014.8144ms)
+✔ closeoutRecord: R2-3(b) - scratch step refuses a target that CONTAINS a registered linked worktree, and the worktree's uncommitted file survives a live run (1609.7536ms)
+✔ closeoutRecord: R2-3(c) - scratch step (--dry-run) refuses a target that CONTAINS the repo root (1324.5901ms)
+✔ closeoutRecord: R2-3(g) - scratch step refuses a target that is a regular FILE, not a directory, and it survives a live run (1507.1652ms)
+✔ closeoutRecord: R2-4 - scratch step refuses a target that LIES INSIDE a registered linked worktree, and the worktree's uncommitted work survives a live run (1618.5025ms)
+✔ closeoutRecord: R2-4 - scratch step refuses a target that LIES INSIDE the repo root itself (1560.6722ms)
+✔ closeoutRecord: R2-9 - a symlink swapped into the record's path between the confined read and the final write is refused, not written through (1457.3063ms)
+✔ closeoutRecord: R2-10 - on a win32 host, a POSIX-shaped Scratch: path is refused 'not absolute on this host', never silently accepted (1492.2651ms)
+✔ sweepOrigin: R2-1 - an open record's Worktree: given as a Windows-shaped path unresolvable on this host still protects the branch by basename (1014.4859ms)
+✔ sweepOrigin: R2-1 - an open record's Worktree: naming an absent POSIX path (not in git worktree list) still protects the branch by basename (1019.3622ms)
+✔ sweepOrigin: R2-1 - the basename fallback does not protect a DIFFERENT branch, and does not apply to a closed/withdrawn record (1247.238ms)
+✔ sweepOrigin: R2-1 (P6) - an open record's Worktree: given as a SYMLINKED path matches directly (named by, not just basename-unresolved) (1549.7944ms)
+✔ closeoutRecord: idempotent - running closeout twice on the same fixture exits 0 both times, and the second run reports every step absent (1831.8827ms)
+✔ closeoutRecord: idempotent - a foreign-OS-shaped Worktree: value stays refused worktree-unresolved (exit 2), even though it never exists on disk on this host either (1314.5014ms)
+✔ closeoutRecord: idempotent - a Worktree: naming a real directory that exists but is not a registered worktree stays refused worktree-unresolved (exit 2) (1286.9085ms)
+✔ closeoutRecord: idempotent - a path-form Worktree: that no longer exists, while a registered worktree elsewhere still holds the record's branch, stays refused worktree-unresolved (exit 2) (1311.409ms)
+✔ closeoutRecord: idempotent - a path-form Worktree: that no longer exists, with the record's own local branch surviving, goes on to remove that branch with -d (1262.0861ms)
+✔ closeoutRecord: R4-5 - a narrow fetch refspec (no refs/remotes/origin tracking ref) with the branch still on origin is refused, never reported absent (1141.1224ms)
+✔ closeoutRecord: R4-5 - a failed git ls-remote on the absent path refuses UNVERIFIABLE (exit 2), never reports absent (1641.1436ms)
+✔ sweepOrigin and closeoutRecord never let an inherited GIT_DIR redirect their git calls at a different repo (4650.2887ms)
+ℹ tests 539
+ℹ suites 12
+ℹ pass 477
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 62
+ℹ todo 0
+ℹ duration_ms 266640.8612
