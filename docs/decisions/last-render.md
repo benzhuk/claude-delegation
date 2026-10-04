@@ -69,7 +69,7 @@
 	</details>
 	## What is going on
 	The plugin now runs the whole loop by itself: a lane goes from spec to main in one to three hours with Sonnet building and Opus reviewing, and today two lanes were led from Codex end to end, which the goal's finish line requires. Your page and the Goals page are rendered from repo files and can no longer drift. The cost still out of line is mine, and tomorrow morning's bearings check it against a 40M budget; the other open failure is stalls, two today of 3.5 and 5.3 hours, which tonight's lanes attack. Knowledge sharing between machines still does nothing and is next.
-	## This session (since your tick at Fri 5:37 PM)
+	## This session (since your tick at Fri 6:27 PM)
 	- Your two objections checked against the research and upheld; the blank-page designer is retracted.
 	- The revised method is on this page in the new pitch format, first under Waiting.
 	- Janitor 0.20.20 install in progress on all four machines, your five classes on.
@@ -78,9 +78,10 @@
 	<callout icon="✅">
 		To comment, start a line with `**` anywhere on this page, then tick Done to submit; the answer appears here and the exchange is kept in that day's history file.
 	</callout>
-	- [ ] Done (last cleared: Oct 2, 2026, 6:28 PM America/New_York)
+	- [ ] Done (last cleared: Oct 4, 2026, 12:59 PM America/New_York)
 	<empty-block/>
 # History {toggle="true"}
+	- [Oct 4](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-10-04.md) — Ben lifted the secret guard for one supervised run of lane 70.
 	- [Oct 2](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-10-02.md) — lane 74 merged to main, and lane 62 went NEEDS BEN on the secret guard.
 	- [Oct 1](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-10-01.md) — Ben ended the pause; the lead is now the pane skills-f, and lanes 62, 64, 65 and 66 were dispatched.
 	- [Sep 30](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-09-30.md) — Daily knowledge triage is accepted with a repaired census and a live proof that archived all60 selected notes; scheduled installation follows the next release.
