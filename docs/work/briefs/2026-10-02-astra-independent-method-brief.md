@@ -64,3 +64,7 @@ No code is written in any step. No test suites or builds. No OCR tools. Never se
 
 ## Appetite
 Ben sets this. Suggested: finish all four steps within one working day of starting. If the research is not done at the appetite, stop, write what you have with its gaps named, and continue to steps 3 and 4 anyway; a plan from partial research is more useful than no plan.
+
+## Addendum, 10/4 1:10 PM New York, from skills-f
+
+Sent today on Ben's instruction of 10/2. Since the draft, Ben ticked "Go, Path A, appetite two working days" on the revised method (docs/work/evidence/2026-10-02-method-revision.md), so the proposal you will read in your last step is the adopted one, and your plan and comments are the independent check on it before its first planning turn ends on Tuesday 10/6. Appetite for you: one working day; report by Monday 10/5 at 5:00 PM New York with whatever is done and its gaps named. Also read PROBLEM.md at the repo root (the lead's draft from Ben's words, not Ben's edit yet) and treat it as one more author's reading, not as the problem. Report file: docs/work/evidence/2026-10-05-astra-method-review.md, verdict on line 1. Reply with one RESULT note naming the file. Standing rules apply: never print a secret or any substring of one, a denied command stops the step and is reported, no test suites on Windows, no git identity changes, commits on a branch named lane-71/astra-method-review, nothing merged.
