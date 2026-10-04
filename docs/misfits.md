@@ -375,3 +375,13 @@ Things read in the sources and judged not to be a failure. Disagree with any of 
 - The 10/2 bearings check not run because the method decision was on Ben's page: a choice the lead recorded, not a failure.
 - The 10/4 refusal of the lane 70 review brief and the reviewer's denied scratch copy of the guard: included as rows, but the lead ruled on 10/4 that the guard did its job on the brief. Treat both as the guard working and strike them if so.
 - Merge, release and install decisions that waited on Ben's word by design.
+
+## Added after the compile
+
+| Id | Date | What happened | Where it is recorded | Proposed class | Recurred? |
+|---|---|---|---|---|---|
+| M283 | 10/4 | The overdue-ask alarm fired on two asks that had already been answered by a RESULT note. | docs/decisions/history/2026-10-04.md | false positive from a check | yes (M81) |
+| M284 | 10/4 | The nested detail toggles and a table inside a heading toggle came back as escaped text and a top-level table on the pitch page's first publish. | docs/decisions/history/2026-10-04.md | readback differs from what was written | yes (M172) |
+| M285 | 10/4 | A safety classifier stopped the lane 70 bypass-hunt review (r4) before a verdict, so the patched guard was never hunted with fresh probes. | docs/work/evidence/2026-10-04-lane-70-review-r4.md | host or tool defect | yes |
+| M286 | 10/4 | On main, the secret guard allows a secret-file read placed after a hash on the same line. | docs/work/evidence/2026-10-04-lane-70-review-r5.md | guard gap already present on main | yes (M276 to M279) |
+| M287 | 10/4 | The lead wrote the move script through a shell heredoc and the secret guard refused it for naming a token variable; redone through the file tool. | docs/decisions/history/2026-10-04.md | false positive from a check | yes (M138, M201) |
