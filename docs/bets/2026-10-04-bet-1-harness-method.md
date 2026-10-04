@@ -12,9 +12,9 @@ One Notion page under Agent Skills, in the pitch shape: problem in Ben's words w
 
 ## Steps
 1. PROBLEM.md drafted by the lead from Ben's words (done 10/4, at the repo root).
-2. Misfit list compiled by a mid-tier runner from the detritus census, the component analysis, the cleanup-versus-janitor report, the lane 70 review and the history since 9/20: one line per observed failure, with date, source and a proposed class. The lead classes it; Ben accepts wording.
-3. Two designs by the lead, misfit log open: the continue design and the simplest-core design, each with the parts it removes and the misfit each removed part answered.
-4. Independent review by Codex (skills-a), reading PROBLEM.md, the misfit list, the two designs and the code: wrong problem, parts no failure demanded, parts removed with no failure named.
+2. (done 10/4 1:30 PM) Misfit list compiled by a mid-tier runner from the detritus census, the component analysis, the cleanup-versus-janitor report, the lane 70 review and the history since 9/20: one line per observed failure, with date, source and a proposed class. The lead classes it; Ben accepts wording.
+3. (done 10/4 1:50 PM) Two designs by the lead, misfit log open: the continue design and the simplest-core design, each with the parts it removes and the misfit each removed part answered.
+4. (asked 10/4, due Tuesday 10/6 5:00 PM) Independent review by Codex (skills-a), reading PROBLEM.md, the misfit list, the two designs and the code: wrong problem, parts no failure demanded, parts removed with no failure named.
 5. Pitch page published; Ben decides go, path, appetite.
 
 ## Parts added and removed
