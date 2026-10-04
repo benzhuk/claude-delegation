@@ -1,0 +1,613 @@
+diff --git a/dot_claude/hooks/INSTALL-secret-guard.md b/dot_claude/hooks/INSTALL-secret-guard.md
+index 8e1b0a8..bded5e2 100644
+--- a/dot_claude/hooks/INSTALL-secret-guard.md
++++ b/dot_claude/hooks/INSTALL-secret-guard.md
+@@ -315,6 +315,43 @@ report is filed) for the full corpus replay: every formerly-refused command
+ that now passes, with the count per class, and confirmation that all 3
+ class-(a) real reads in the corpus still deny.
+ 
++## Phase 3: false-positive narrowing (lane 70, 2026-10-04)
++
++Six refusals seen on synthetic text (a heredoc appending test code, a report
++heredoc, a `...process.env` spread, a script summing census JSON, a
++`chezmoi status | grep` filter, a markdown brief) were narrowed. Each fix
++makes the named false positive pass and leaves every earlier deny in the
++self-test corpus intact; each has a near-miss twin in the self-test's "LANE 70
++corpus" section that must keep denying.
++
++- **Sourcing check** (`has_source_sourcing`): `source` / `.` must now sit at a
++  command position (start of text, after `; & | ( { `` ` `` `, a quote, or a
++  shell keyword such as `then`/`do`/`exec`). A sentence period after a
++  paren, quote or `...` no longer reads as a dot-source.
++- **`.key` property access** (`strip_key_property_access`): `n.key === x` and
++  `(n) => n.key` style access is no longer taken for a private key file name.
++  A key file operand (`cat a.key`, `scp h:a.key`, `--key=a.key`, `$(cat a.key)`,
++  `{a.key,b.key}`) keeps denying.
++- **Quoted `cat > file` heredocs** (`strip_quoted_heredoc_bodies`): the
++  command-substitution bailout now looks at the text left after the exempt
++  bodies are blanked, so backticks and `${...}` inside a markdown or JS body no
++  longer defeat the exemption. A substitution outside an exempt body, or an
++  executed (interpreter) body, still bails.
++- **Environment pass-along** (`strip_env_passalong`): `{ ...process.env }`,
++  `env: process.env`, Python `**os.environ` and `env=os.environ` are not a dump
++  unless the text also prints the environment (`has_secret_print_context`).
++- **grep filters** (`strip_search_pattern_arguments`): a pattern quoted one
++  level deeper (an `ssh "...grep -E \"x\"..."` string) and an unquoted first
++  pattern argument without `-f` are search patterns, not file operands.
++- **Written prose** (Write/Edit): content scanning for an embedded secret-file
++  read is skipped when the target AND its symlink-resolved path end in `.md`,
++  `.markdown`, `.mdx`, `.txt` or `.rst`. Any other extension, a secret-file
++  target path, and a key-shaped literal are checked exactly as before.
++
++Accepted residual: a `{ ...process.env }` copy written to a file without any
++print verb in the same statement is no longer denied (the dump to a transcript
++is what this hook guards, and a later read of that file is not a secret path).
++
+ ## Verifying it's live
+ 
+ ```
+diff --git a/dot_claude/hooks/executable_secret-guard-selftest.sh b/dot_claude/hooks/executable_secret-guard-selftest.sh
+index 6125dae..20db7e2 100755
+--- a/dot_claude/hooks/executable_secret-guard-selftest.sh
++++ b/dot_claude/hooks/executable_secret-guard-selftest.sh
+@@ -1306,6 +1306,294 @@ t_phase2fix2_git_diff_stat_still_allows() {
+   teardown_fixture
+ }
+ 
++# =============================================================================
++# LANE 70 corpus (narrow the guard's false positives): every case below is a
++# refusal that was observed on synthetic text, never on a real secret access,
++# paired with a near-miss twin that really does read, source, print or
++# exfiltrate and must keep denying. As elsewhere in this file, every sample
++# secret name is built at runtime (DOTENV_SAMPLE, a prefix plus a suffix) and
++# never spelled next to a read verb in this file's own source.
++#   FP1  node heredoc: `.key` property access plus a sentence period
++#   FP2  cat>file heredoc report whose body carries backticks
++#   FP3  `...process.env` spread / `env: process.env` building a child env
++#   FP4  script summing census JSON (`.key` property, template literal)
++#   FP5  `| grep NAME` filter (unquoted and nested-quote patterns), a report
++#        heredoc naming the env file
++#   FP6  Write of a markdown file whose prose names the env file
++# =============================================================================
++
++SQ="'"
++BT='`'
++KEY_EXT_SAMPLE=".key"
++CLAUDE_ENV_SAMPLE="claude.env"
++
++l70_node_key_heredoc_cmd() {
++  printf 'node - <<%sEOF%s\n// Replace the anchor (see the pane). Then check the result.\nconst one = rep.numbers.find((n) => n.key === %stopTier%s).value;\nconsole.log(one);\nEOF' "$SQ" "$SQ" "$SQ" "$SQ"
++}
++l70_node_key_heredoc_then_read_cmd() {
++  printf '%s\ncat server%s' "$(l70_node_key_heredoc_cmd)" "$KEY_EXT_SAMPLE"
++}
++l70_prose_period_echo_cmd() {
++  printf 'echo "see %s (the config file). Next step"' "$DOTENV_SAMPLE"
++}
++l70_period_then_real_source_cmd() {
++  printf 'echo "done (see below). Next"; source %s' "$DOTENV_SAMPLE"
++}
++l70_dot_source_after_andand_cmd() {
++  printf 'cd /tmp && . %s' "$DOTENV_SAMPLE"
++}
++l70_bashc_source_cmd() {
++  printf 'bash -c "source %s"' "$DOTENV_SAMPLE"
++}
++l70_bashc_single_quoted_source_cmd() {
++  printf 'bash -c %ssource %s%s' "$SQ" "$DOTENV_SAMPLE" "$SQ"
++}
++l70_key_map_oneliner_cmd() {
++  printf 'node -e "console.log(rows.map((n) => n.key).join(%s,%s))"' "$SQ" "$SQ"
++}
++l70_key_cat_in_subshell_cmd()   { printf 'echo $(cat server%s)' "$KEY_EXT_SAMPLE"; }
++l70_key_scp_cmd()               { printf 'scp host:a%s .' "$KEY_EXT_SAMPLE"; }
++l70_key_openssl_cmd()           { printf 'openssl rsa -in a%s -out b' "$KEY_EXT_SAMPLE"; }
++l70_key_option_equals_cmd()     { printf 'curl --key=a%s https://example.com' "$KEY_EXT_SAMPLE"; }
++l70_key_cp_semicolon_cmd()      { printf 'cp a b%s; echo done' "$KEY_EXT_SAMPLE"; }
++l70_key_brace_pair_cmd()        { printf 'cat {a%s,b%s}' "$KEY_EXT_SAMPLE" "$KEY_EXT_SAMPLE"; }
++
++l70_report_heredoc_backticks_cmd() {
++  printf 'cat > report.md <<%sEOF%s\n# Report\nThe helper resolves argv against %sprocess.cwd()%s in main(), not process.env (sealed).\nRun %sssh host%s then see %s.\nEOF' \
++    "$SQ" "$SQ" "$BT" "$BT" "$BT" "$BT" "$CLAUDE_ENV_SAMPLE"
++}
++l70_report_heredoc_then_real_read_cmd() {
++  printf '%s\ncat %s' "$(l70_report_heredoc_backticks_cmd)" "$DOTENV_SAMPLE"
++}
++l70_report_heredoc_cmdsub_on_start_line_cmd() {
++  printf 'cat > report.md $(cat %s) <<%sEOF%s\nnotes with %sbackticks%s\nEOF' "$DOTENV_SAMPLE" "$SQ" "$SQ" "$BT" "$BT"
++}
++l70_interpreter_heredoc_backticks_read_cmd() {
++  printf 'bash <<%sEOF%s\ncat %s\necho %sdate%s\nEOF' "$SQ" "$SQ" "$DOTENV_SAMPLE" "$BT" "$BT"
++}
++
++l70_node_spread_child_env_cmd() {
++  printf 'node - <<%sEOF%s\nconst childEnv = { ...process.env, DELEGATION_TOP_TIER: %sx%s };\nconst r = spawnSync(process.execPath, [%sa.mjs%s], { env: childEnv, cwd: process.cwd() });\nEOF' \
++    "$SQ" "$SQ" "$SQ" "$SQ" "$SQ" "$SQ"
++}
++l70_node_env_option_cmd() {
++  printf 'python3 - <<%sEOF%s\ns = s.replace(%sargs: [repo], env: process.env, timeoutMs: 5%s, %sargs: [repo], env: { ...process.env, X: 1 }, timeoutMs: 5%s)\nEOF' \
++    "$SQ" "$SQ" "$SQ" "$SQ" "$SQ" "$SQ"
++}
++l70_python_child_env_cmd() {
++  printf 'python3 - <<%sEOF%s\nsubprocess.run([%sx%s], env={**os.environ, %sA%s: %s1%s})\nEOF' \
++    "$SQ" "$SQ" "$SQ" "$SQ" "$SQ" "$SQ" "$SQ" "$SQ"
++}
++l70_node_spread_printed_cmd() {
++  printf 'node - <<%sEOF%s\nconsole.log({ ...process.env });\nEOF' "$SQ" "$SQ"
++}
++l70_node_spread_printed_before_cmd() {
++  printf 'node - <<%sEOF%s\nconst childEnv = { ...process.env };\nEOF\nnode -e "console.log(process.env)"' "$SQ" "$SQ"
++}
++l70_python_spread_printed_cmd() {
++  printf 'python3 - <<%sEOF%s\nprint({**os.environ})\nEOF' "$SQ" "$SQ"
++}
++l70_node_env_arg_plain_cmd() {
++  printf 'node -e "require(%sx%s)(process.env)"' "$SQ" "$SQ"
++}
++
++l70_census_sum_script_cmd() {
++  printf 'cat > ../lanetable.mjs <<%sEOF%s\nimport fs from %snode:fs%s;\nconst names = fs.readdirSync(%s.%s).filter(f=>f.endsWith(%s.fourread.json%s));\nfor (const n of names) { const j = JSON.parse(fs.readFileSync(n,%sutf8%s)); console.log(%s${n}: ${j.numbers.map((x) => x.key).join(%s,%s)}%s); }\nEOF' \
++    "$SQ" "$SQ" "$SQ" "$SQ" "$SQ" "$SQ" "$SQ" "$SQ" "$SQ" "$SQ" "$BT" "$SQ" "$SQ" "$BT"
++}
++l70_census_sum_script_then_read_cmd() {
++  printf '%s\ncat server%s' "$(l70_census_sum_script_cmd)" "$KEY_EXT_SAMPLE"
++}
++
++l70_grep_filter_unquoted_cmd()  { printf 'chezmoi status | grep %s' "$CLAUDE_ENV_SAMPLE"; }
++l70_grep_filter_nested_quote_cmd() {
++  printf 'ssh ben@host "bash -lc %schezmoi status 2>&1 | grep -E \\"^(MM|.M) \\" | grep -E \\"env|systemd|ssh\\"; echo done%s" 2>&1' "$SQ" "$SQ"
++}
++l70_grep_pattern_then_file_operand_cmd() { printf 'grep SECRET %s' "$CLAUDE_ENV_SAMPLE"; }
++l70_grep_dash_f_patterns_file_cmd()      { printf 'grep -f %s other.txt' "$CLAUDE_ENV_SAMPLE"; }
++l70_grep_filter_then_cat_cmd()           { printf 'chezmoi status | grep %s | cat %s' "$CLAUDE_ENV_SAMPLE" "$CLAUDE_ENV_SAMPLE"; }
++l70_ssh_bare_env_dump_cmd()              { printf 'ssh ben@host "env | grep -E \\"HOME\\""'; }
++
++l70_prose_md_content() {
++  printf '# Brief\nThe guard refused a cat of ~/.config/claude/%s as a command.\nExample of a must-block twin:\n    cat ~/.config/claude/%s\n' "$CLAUDE_ENV_SAMPLE" "$CLAUDE_ENV_SAMPLE"
++}
++
++t_l70_fp1_node_key_property_and_period_allows() {
++  setup_fixture
++  assert_allow "lane70 FP1: node heredoc with .key property access and a sentence period allows" pretooluse \
++    "$(mk_bash_payload "$(l70_node_key_heredoc_cmd)")"
++  teardown_fixture
++}
++t_l70_fp1_node_key_heredoc_then_real_key_read_denies() {
++  setup_fixture
++  assert_deny "lane70 FP1 twin: the same heredoc followed by a real read of a key file denies" pretooluse \
++    "$(mk_bash_payload "$(l70_node_key_heredoc_then_read_cmd)")" "command references a secret file"
++  teardown_fixture
++}
++t_l70_fp1_prose_period_in_echo_allows() {
++  setup_fixture
++  assert_allow "lane70 FP1: a sentence period after a paren in a quoted echo allows" pretooluse \
++    "$(mk_bash_payload "$(l70_prose_period_echo_cmd)")"
++  teardown_fixture
++}
++t_l70_fp1_period_then_real_source_denies() {
++  setup_fixture
++  assert_deny "lane70 FP1 twin: a sentence period followed by a real source of the sample still denies" pretooluse \
++    "$(mk_bash_payload "$(l70_period_then_real_source_cmd)")" "command sources a secret file"
++  teardown_fixture
++}
++t_l70_fp1_dot_source_after_andand_denies() {
++  setup_fixture
++  assert_deny "lane70 FP1 twin: dot-sourcing the sample after && still denies" pretooluse \
++    "$(mk_bash_payload "$(l70_dot_source_after_andand_cmd)")" "command sources a secret file"
++  teardown_fixture
++}
++t_l70_fp1_bashc_source_denies() {
++  setup_fixture
++  assert_deny "lane70 FP1 twin: bash -c \"source SAMPLE\" still denies" pretooluse \
++    "$(mk_bash_payload "$(l70_bashc_source_cmd)")" "command sources a secret file"
++  assert_deny "lane70 FP1 twin: bash -c 'source SAMPLE' (single quotes) still denies" pretooluse \
++    "$(mk_bash_payload "$(l70_bashc_single_quoted_source_cmd)")" "command sources a secret file"
++  teardown_fixture
++}
++t_l70_fp1_key_map_oneliner_allows() {
++  setup_fixture
++  assert_allow "lane70 FP1: rows.map((n) => n.key) in a node one-liner allows" pretooluse \
++    "$(mk_bash_payload "$(l70_key_map_oneliner_cmd)")"
++  teardown_fixture
++}
++t_l70_fp1_key_file_reads_still_deny() {
++  setup_fixture
++  assert_deny "lane70 FP1 twin: cat of a key file inside \$(...) denies" pretooluse \
++    "$(mk_bash_payload "$(l70_key_cat_in_subshell_cmd)")" "command references a secret file"
++  assert_deny "lane70 FP1 twin: scp of host:a.key denies" pretooluse \
++    "$(mk_bash_payload "$(l70_key_scp_cmd)")" "command references a secret file"
++  assert_deny "lane70 FP1 twin: openssl -in a.key denies" pretooluse \
++    "$(mk_bash_payload "$(l70_key_openssl_cmd)")" "command references a secret file"
++  assert_deny "lane70 FP1 twin: --key=a.key option denies" pretooluse \
++    "$(mk_bash_payload "$(l70_key_option_equals_cmd)")" "command references a secret file"
++  assert_deny "lane70 FP1 twin: cp a b.key; denies" pretooluse \
++    "$(mk_bash_payload "$(l70_key_cp_semicolon_cmd)")" "command references a secret file"
++  assert_deny "lane70 FP1 twin: brace pair {a.key,b.key} denies" pretooluse \
++    "$(mk_bash_payload "$(l70_key_brace_pair_cmd)")" "command references a secret file"
++  teardown_fixture
++}
++
++t_l70_fp2_report_heredoc_with_backticks_allows() {
++  setup_fixture
++  assert_allow "lane70 FP2/5: cat>file report heredoc whose body has backticks, process.cwd() and the env file name allows" pretooluse \
++    "$(mk_bash_payload "$(l70_report_heredoc_backticks_cmd)")"
++  teardown_fixture
++}
++t_l70_fp2_report_heredoc_then_real_read_denies() {
++  setup_fixture
++  assert_deny "lane70 FP2 twin: the same heredoc followed by a real read of the sample denies" pretooluse \
++    "$(mk_bash_payload "$(l70_report_heredoc_then_real_read_cmd)")" "command references a secret file"
++  teardown_fixture
++}
++t_l70_fp2_cmdsub_on_heredoc_start_line_denies() {
++  setup_fixture
++  assert_deny "lane70 FP2 twin: a command substitution on the heredoc's own start line denies" pretooluse \
++    "$(mk_bash_payload "$(l70_report_heredoc_cmdsub_on_start_line_cmd)")" "secret"
++  teardown_fixture
++}
++t_l70_fp2_interpreter_heredoc_with_backticks_denies() {
++  setup_fixture
++  assert_deny "lane70 FP2 twin: an executed (bash) heredoc body with backticks that reads the sample denies" pretooluse \
++    "$(mk_bash_payload "$(l70_interpreter_heredoc_backticks_read_cmd)")" "secret"
++  teardown_fixture
++}
++
++t_l70_fp3_spread_child_env_allows() {
++  setup_fixture
++  assert_allow "lane70 FP3: node heredoc building { ...process.env, X } for a child allows" pretooluse \
++    "$(mk_bash_payload "$(l70_node_spread_child_env_cmd)")"
++  assert_allow "lane70 FP3: env: process.env in text being rewritten allows" pretooluse \
++    "$(mk_bash_payload "$(l70_node_env_option_cmd)")"
++  assert_allow "lane70 FP3: python {**os.environ, A: 1} for a child allows" pretooluse \
++    "$(mk_bash_payload "$(l70_python_child_env_cmd)")"
++  teardown_fixture
++}
++t_l70_fp3_printed_spread_still_denies() {
++  setup_fixture
++  assert_deny "lane70 FP3 twin: console.log({ ...process.env }) denies" pretooluse \
++    "$(mk_bash_payload "$(l70_node_spread_printed_cmd)")" "command dumps the process environment"
++  assert_deny "lane70 FP3 twin: a spread plus a separate print of process.env denies" pretooluse \
++    "$(mk_bash_payload "$(l70_node_spread_printed_before_cmd)")" "command dumps the process environment"
++  assert_deny "lane70 FP3 twin: print({**os.environ}) denies" pretooluse \
++    "$(mk_bash_payload "$(l70_python_spread_printed_cmd)")" "command dumps the process environment"
++  assert_deny "lane70 FP3 twin: process.env as a plain call argument still denies" pretooluse \
++    "$(mk_bash_payload "$(l70_node_env_arg_plain_cmd)")" "command dumps the process environment"
++  teardown_fixture
++}
++
++t_l70_fp4_census_sum_script_allows() {
++  setup_fixture
++  assert_allow "lane70 FP4: cat>file script summing census JSON (template literal, x.key) allows" pretooluse \
++    "$(mk_bash_payload "$(l70_census_sum_script_cmd)")"
++  teardown_fixture
++}
++t_l70_fp4_census_sum_script_then_key_read_denies() {
++  setup_fixture
++  assert_deny "lane70 FP4 twin: the same script followed by a real key-file read denies" pretooluse \
++    "$(mk_bash_payload "$(l70_census_sum_script_then_read_cmd)")" "command references a secret file"
++  teardown_fixture
++}
++
++t_l70_fp5_grep_filter_unquoted_allows() {
++  setup_fixture
++  assert_allow "lane70 FP5: chezmoi status | grep NAME (unquoted pattern, no file operand) allows" pretooluse \
++    "$(mk_bash_payload "$(l70_grep_filter_unquoted_cmd)")"
++  teardown_fixture
++}
++t_l70_fp5_grep_filter_nested_quotes_allows() {
++  setup_fixture
++  assert_allow "lane70 FP5: grep -E \\\"env|systemd\\\" inside an ssh \"...\" string allows" pretooluse \
++    "$(mk_bash_payload "$(l70_grep_filter_nested_quote_cmd)")"
++  teardown_fixture
++}
++t_l70_fp5_grep_filter_twins_deny() {
++  setup_fixture
++  assert_deny "lane70 FP5 twin: grep PATTERN SAMPLE (a real file operand) denies" pretooluse \
++    "$(mk_bash_payload "$(l70_grep_pattern_then_file_operand_cmd)")" "command references a secret file"
++  assert_deny "lane70 FP5 twin: grep -f SAMPLE other.txt (file used as the pattern list) denies" pretooluse \
++    "$(mk_bash_payload "$(l70_grep_dash_f_patterns_file_cmd)")" "command references a secret file"
++  assert_deny "lane70 FP5 twin: the grep filter piped on into a cat of the sample denies" pretooluse \
++    "$(mk_bash_payload "$(l70_grep_filter_then_cat_cmd)")" "command references a secret file"
++  assert_deny "lane70 FP5 twin: a bare env dump on the far side of an ssh string denies" pretooluse \
++    "$(mk_bash_payload "$(l70_ssh_bare_env_dump_cmd)")" "command dumps the process environment"
++  teardown_fixture
++}
++
++t_l70_fp6_write_prose_md_allows() {
++  setup_fixture
++  assert_allow "lane70 FP6: Write of a .md file whose prose shows a cat of the env file allows" pretooluse \
++    "$(mk_full_write_payload "/tmp/lane70/brief.md" "$(l70_prose_md_content)" "/tmp/transcript-l70.jsonl")"
++  teardown_fixture
++}
++t_l70_fp6_write_same_content_as_script_denies() {
++  setup_fixture
++  assert_deny "lane70 FP6 twin: the same content written to a .sh file denies" pretooluse \
++    "$(mk_full_write_payload "/tmp/lane70/brief.sh" "$(l70_prose_md_content)" "/tmp/transcript-l70.jsonl")" "file content embeds a secret-file read"
++  assert_deny "lane70 FP6 twin: the same content written to a .mjs file denies" pretooluse \
++    "$(mk_full_write_payload "/tmp/lane70/brief.mjs" "$(l70_prose_md_content)" "/tmp/transcript-l70.jsonl")" "file content embeds a secret-file read"
++  assert_deny "lane70 FP6 twin: the same content written to a .json file denies" pretooluse \
++    "$(mk_full_write_payload "/tmp/lane70/brief.json" "$(l70_prose_md_content)" "/tmp/transcript-l70.jsonl")" "file content embeds a secret-file read"
++  teardown_fixture
++}
++t_l70_fp6_write_md_with_key_literal_denies() {
++  setup_fixture
++  assert_deny "lane70 FP6 twin: a .md file that embeds a key-shaped literal still denies" pretooluse \
++    "$(mk_full_write_payload "/tmp/lane70/brief.md" "token: $(fake_akia_key)" "/tmp/transcript-l70.jsonl")" "key-shaped literal"
++  teardown_fixture
++}
++t_l70_fp6_write_target_is_secret_path_denies() {
++  setup_fixture
++  assert_deny "lane70 FP6 twin: a prose extension does not excuse a secret target path" pretooluse \
++    "$(mk_full_write_payload "/tmp/lane70/$DOTENV_SAMPLE" "just words" "/tmp/transcript-l70.jsonl")" "target matches a secret file pattern"
++  teardown_fixture
++}
++
+ # =============================================================================
+ # run everything
+ # =============================================================================
+@@ -1385,6 +1673,29 @@ for t in \
+   t_phase2fix2_git_log_stat_still_allows \
+   t_phase2fix2_git_log_oneline_n5_still_allows \
+   t_phase2fix2_git_diff_stat_still_allows \
++  t_l70_fp1_node_key_property_and_period_allows \
++  t_l70_fp1_node_key_heredoc_then_real_key_read_denies \
++  t_l70_fp1_prose_period_in_echo_allows \
++  t_l70_fp1_period_then_real_source_denies \
++  t_l70_fp1_dot_source_after_andand_denies \
++  t_l70_fp1_bashc_source_denies \
++  t_l70_fp1_key_map_oneliner_allows \
++  t_l70_fp1_key_file_reads_still_deny \
++  t_l70_fp2_report_heredoc_with_backticks_allows \
++  t_l70_fp2_report_heredoc_then_real_read_denies \
++  t_l70_fp2_cmdsub_on_heredoc_start_line_denies \
++  t_l70_fp2_interpreter_heredoc_with_backticks_denies \
++  t_l70_fp3_spread_child_env_allows \
++  t_l70_fp3_printed_spread_still_denies \
++  t_l70_fp4_census_sum_script_allows \
++  t_l70_fp4_census_sum_script_then_key_read_denies \
++  t_l70_fp5_grep_filter_unquoted_allows \
++  t_l70_fp5_grep_filter_nested_quotes_allows \
++  t_l70_fp5_grep_filter_twins_deny \
++  t_l70_fp6_write_prose_md_allows \
++  t_l70_fp6_write_same_content_as_script_denies \
++  t_l70_fp6_write_md_with_key_literal_denies \
++  t_l70_fp6_write_target_is_secret_path_denies \
+ ; do
+   "$t"
+ done
+diff --git a/dot_claude/hooks/executable_secret-guard.sh b/dot_claude/hooks/executable_secret-guard.sh
+index 3b08ae1..efd592a 100644
+--- a/dot_claude/hooks/executable_secret-guard.sh
++++ b/dot_claude/hooks/executable_secret-guard.sh
+@@ -668,6 +668,39 @@ has_env_dump() {
+   return 1
+ }
+ 
++# strip_env_passalong "<text>" -> text with a bare process.env / os.environ
++# blanked where it is only being PASSED ALONG to a child, not dumped. Lane 70
++# (false positive 3): has_env_dump treats a bare `process.env` (no property)
++# as the whole environment being logged, spread or stringified. A spread into
++# a new object (`{ ...process.env, X: 1 }`) and a child-env option
++# (`env: process.env`, Python `env=os.environ`, `**os.environ`) hand the
++# environment to a child process; nothing prints it, which is how every test
++# that builds a child env writes it. Only those four shapes are blanked, and
++# ONLY when the text has no printing context for the environment object
++# (has_secret_print_context, the same check the named-variable path uses: a
++# print verb ahead of it in the statement, a redirect right after it, xtrace,
++# curl -v, node -p). `console.log({ ...process.env })`, `JSON.stringify(
++# process.env)`, `echo $(node -e ...)` and a plain `process.env` argument all
++# keep denying, as does a spread in a command that also prints it.
++strip_env_passalong() {
++  local text="$1" out ref
++  case "$text" in
++    *process.env*|*os.environ*) : ;;
++    *) printf '%s' "$text"; return 0 ;;
++  esac
++  ref='process\.env|os\.environ'
++  has_secret_print_context "$text" "$ref" && { printf '%s' "$text"; return 0; }
++  out="$(printf '%s' "$text" | sed -E \
++    -e 's/(\.\.\.|\*\*)[[:space:]]*(process\.env|os\.environ)([^A-Za-z0-9_.[]|$)/\1ENV_PASSALONG\3/g' \
++    -e 's/(env[[:space:]]*(:|=)[[:space:]]*)(process\.env|os\.environ)([[:space:]]*[,;})]|[[:space:]]*$)/\1ENV_PASSALONG\4/g' \
++    2>/dev/null)"
++  if [ -n "$out" ]; then
++    printf '%s' "$out"
++  else
++    printf '%s' "$text"
++  fi
++}
++
+ # has_secret_print_context "<text>" "<ref_pattern>" — round-5 fix, 2026-09-03:
+ # true if a match of ref_pattern (a $VAR ref or a process.env-style property
+ # access) sits in a PRINTING context that would actually put the VALUE in
+@@ -1110,7 +1143,26 @@ has_source_sourcing() { # has_source_sourcing "<text>"
+   # Boundary is "not a word char" (not just ;&|space) because the caller
+   # scans raw JSON text, where a shell verb is very often preceded by a
+   # literal `"` from the JSON string encoding, not whitespace.
+-  printf '%s' "$1" | grep -qE '(^|[^A-Za-z0-9_])(source|\.)[[:space:]]+[^[:space:]]'
++  #
++  # Lane 70 (false positive 1): the boundary used to be "any non-word char",
++  # so the period-space ending a sentence in a comment or a report
++  # ("...pane). Synthetic ids", a `...` spread, "etc. next") read as a
++  # dot-source whenever a secret-shaped name sat anywhere in the command. The
++  # verb must now be at a command position: start of text, a JSON-string
++  # opening quote, a statement separator or opener (; & | ( { backtick), or a
++  # shell keyword / wrapper word that precedes a command (then do else elif if
++  # while until time exec command builtin eval sudo). Prose and operands no
++  # longer qualify. A real `source FILE` / `. FILE` in any of those positions
++  # still matches; and the path-default-deny gate below still sees every one
++  # of those commands independently of this check.
++  # The dot form additionally refuses a backslash-escaped quote as its
++  # boundary (a JSON-escaped shell quote, usually the CLOSING quote of a
++  # quoted phrase before a sentence period); the word form accepts it, and a
++  # single quote, since `bash -c "source FILE"` and `bash -c 'source FILE'`
++  # open with one.
++  local kw='((then|do|else|elif|if|while|until|time|exec|command|builtin|eval|sudo)[[:space:]]+)*'
++  printf '%s' "$1" | grep -qE -- \
++    '(^|[^\\]"|[;&|({`])[[:space:]]*'"$kw"'\.[[:space:]]+[^[:space:]]|(^|\\"|[^\\]"|[;&|({`'"'"'])[[:space:]]*'"$kw"'source[[:space:]]+[^[:space:]]'
+ }
+ 
+ has_secret_echo() { # has_secret_echo "<text>"
+@@ -1121,6 +1173,40 @@ has_secret_echo() { # has_secret_echo "<text>"
+   printf '%s' "$t" | grep -qiE -- "$pat"
+ }
+ 
++# strip_key_property_access "<text>" -> text with `.key` blanked where it is a
++# property access in script code, not a file extension. Lane 70 (false
++# positives 1 and 4): the `.key` entry in SECRET_PATH_PATTERNS (a private key
++# file) also matches `n.key === 'x'`, `rows.map((n) => n.key)` and the like in
++# any JS/Python text on the command line or in a heredoc body, which is most
++# scripts that handle a keyed record. Two shapes only, both of which a shell
++# command reading a file cannot take:
++#   (1) `IDENT(.IDENT)*.key` followed by a comparison operator
++#       (===, !==, ==, !=): nothing reads a file as an operand of a comparison.
++#   (2) the same chain sitting directly after an expression opener -- `=>`,
++#       `(`, `[`, `,`, `&&`, `||`, `...`, ` = `, `return` -- and followed by
++#       `)`, `]`, `}`, `,` or `;`. The chain must START right after the opener
++#       (no word and space in between), so `cat server.key)`, `scp h:a.key`,
++#       `--key-file=a.key`, `cp a b.key;`, `{a.key,b.key}` and a quoted
++#       "a.key" are all untouched: a verb or an option before the name keeps
++#       the hit. Anything that does not fit (1) or (2) keeps denying.
++# `.pem`, `.p12`, `.pfx`, `.jks` and `.keystore` are never touched.
++strip_key_property_access() {
++  local text="$1" out
++  case "$text" in
++    *.key*) : ;;
++    *) printf '%s' "$text"; return 0 ;;
++  esac
++  out="$(printf '%s' "$text" | sed -E \
++    -e 's/([A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*)\.key([[:space:]]*(===|!==|==|!=))/\1.KEYPROP\3/g' \
++    -e 's/(=>|[(,[]|&&|\|\||\.\.\.|[[:space:]]=|return)([[:space:]]*)([A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*)\.key([[:space:]]*[]),};])/\1\2\3.KEYPROP\5/g' \
++    2>/dev/null)"
++  if [ -n "$out" ]; then
++    printf '%s' "$out"
++  else
++    printf '%s' "$text"
++  fi
++}
++
+ # strip_shell_comments "<text>" -> text with `#...` shell comments removed.
+ # Bounded at a literal `"` OR a backslash — every JSON escape sequence
+ # (`\n`, `\t`, `\"`, `\\`, `\uXXXX`) starts with a backslash, so excluding it
+@@ -1180,9 +1266,11 @@ strip_shell_comments() {
+ #   (a) the receiver is `cat` with stdout redirected to a file (>/>>), or
+ #       `tee` with a file operand;
+ #   (b) nothing follows it in a pipe;
+-#   (c) the whole command scope carries no command or process substitution
+-#       ($(...), backticks, <(...), >(...)) ANYWHERE — checked blanket
+-#       across the whole scope, not just around this heredoc, since a
++#   (c) the command scope, EXCLUDING the bodies this function blanks, carries
++#       no command or process substitution ($(...), backticks, <(...),
++#       >(...)) ANYWHERE — checked blanket across the whole remaining scope
++#       (lane 70: the blanked bodies themselves are literal text, so a
++#       backtick or ${...} inside one no longer counts), since a
+ #       reliable "is THIS heredoc nested inside a substitution" parse is
+ #       exactly the kind of judgment call ruling r1's own governing rule
+ #       resolves by refusing to guess: "When unsure, deny."
+@@ -1207,15 +1295,21 @@ strip_quoted_heredoc_bodies() {
+     *'<<'*) : ;;
+     *) printf '%s' "$text"; return 0 ;;
+   esac
+-  # (c) above, blanket: single-quoted case patterns are required here — a
++  # (c) above, applied at the end of this function: single-quoted case patterns are required — a
+   # double-quoted "$(" or "`" pattern is parsed by bash as an actual command
+   # substitution/backtick open and corrupts the rest of the script (caught
+   # empirically on scratch; the red-team's own suggested patch used the
+   # double-quoted form and does not parse at all — confirmed with `bash -n`
+   # before this was trusted).
+-  case "$text" in
+-    *'$('*|*'`'*|*'<('*|*'>('*) printf '%s' "$text"; return 0 ;;
+-  esac
++  # Lane 70 (false positives 2, 5, 6): the substitution bailout used to scan
++  # the WHOLE text, exempt heredoc bodies included. A quoted `cat > file` body
++  # is literal text the shell expands nothing in, and markdown or JS written
++  # through one carries backticks and ${...} by the dozen, so any such body
++  # defeated the exemption (a report that merely quoted `ssh host`). The same
++  # bailout now runs AFTER the blanking (end of this function), on the text
++  # that remains: a substitution anywhere outside an exempt body -- the
++  # heredoc's own start line, any other line, or a non-exempt (executed)
++  # body -- still returns the text untouched, exactly as before.
+   real="$(printf '%s' "$text" | sed -E 's/\\[nr]/\n/g' 2>/dev/null)"
+   [ -n "$real" ] || { printf '%s' "$text"; return 0; }
+   norm="$(printf '%s\n' "$real" | sed -E \
+@@ -1259,6 +1353,9 @@ strip_quoted_heredoc_bodies() {
+     }
+   ' 2>/dev/null)"
+   [ -n "$result" ] || { printf '%s' "$text"; return 0; }
++  case "$result" in
++    *'$('*|*'`'*|*'<('*|*'>('*) printf '%s' "$text"; return 0 ;;
++  esac
+   printf '%s' "$result" | awk 'BEGIN{first=1} { if (first) { first=0 } else { printf "\\n" }; printf "%s", $0 }' 2>/dev/null
+ }
+ 
+@@ -1295,8 +1392,9 @@ strip_search_pattern_arguments() {
+     *) printf '%s' "$text"; return 0 ;;
+   esac
+   out="$(printf '%s' "$text" | sed -E \
+-    -e "s/((grep|egrep|fgrep|rg|sed|findstr)([[:space:]]+-[A-Za-z]+)*[[:space:]]+)\\\\\"[^\"]*\\\\\"/\\1SEARCH_PATTERN_ARG_BLANKED/g" \
++    -e "s/((grep|egrep|fgrep|rg|sed|findstr)([[:space:]]+-[A-Za-z]+)*[[:space:]]+)\\\\+\"[^\"]*\\\\+\"/\\1SEARCH_PATTERN_ARG_BLANKED/g" \
+     -e "s/((grep|egrep|fgrep|rg|sed|findstr)([[:space:]]+-[A-Za-z]+)*[[:space:]]+)'[^']*'/\\1SEARCH_PATTERN_ARG_BLANKED/g" \
++    -e "s/((^|[^A-Za-z0-9_-])(grep|egrep|fgrep|rg)([[:space:]]+-[A-Za-eg-z]+)*[[:space:]]+)([^][:space:]\"'|;&<>\$\`\\\\-][^][:space:]\"'|;&<>\$\`\\\\]*)/\\1SEARCH_PATTERN_ARG_BLANKED/g" \
+     2>/dev/null)"
+   [ -n "$out" ] || { printf '%s' "$text"; return 0; }
+   printf '%s' "$out"
+@@ -1650,6 +1748,15 @@ has_content_adjacency_leak() {
+   return 1
+ }
+ 
++is_prose_file_path() { # is_prose_file_path "<path>" -> 0 when the extension is a prose format
++  local lower
++  lower="$(printf '%s' "$1" | tr 'A-Z' 'a-z')"
++  case "$lower" in
++    *.md|*.markdown|*.mdx|*.txt|*.rst) return 0 ;;
++  esac
++  return 1
++}
++
+ resolve_symlink() { # resolve_symlink "<path>" -> resolved absolute path, or empty
+   local p="$1"
+   [ -n "$p" ] || return 0
+@@ -1682,7 +1789,18 @@ if [ "$MODE" = "pretooluse" ]; then
+           path_pattern_hit "$RESOLVED" && deny "target resolves (symlink) to a secret file" "secret_path_symlink" "$RESOLVED"
+         fi
+       fi
+-      has_content_adjacency_leak "$RAW" && deny "file content embeds a secret-file read" "content_adjacency" "$FILE_PATH_FIELD"
++      # Lane 70 (false positive 6): written PROSE is not a read. A markdown or
++      # plain-text file only ever holds words -- a brief that names the env
++      # file, or shows `cat` of it as the example of a command that must be
++      # refused -- and nothing executes it as a script. The adjacency scan
++      # exists for a script body that would perform the read; any other
++      # extension, including .sh .mjs .py .json .ipynb, and a path that
++      # resolves (symlink) to a non-prose file, is scanned exactly as before.
++      # The target path itself was already checked against the secret-file
++      # patterns above; this only skips the content scan.
++      if ! { is_prose_file_path "$FILE_PATH_FIELD" && { [ -z "${RESOLVED:-}" ] || is_prose_file_path "$RESOLVED"; }; }; then
++        has_content_adjacency_leak "$RAW" && deny "file content embeds a secret-file read" "content_adjacency" "$FILE_PATH_FIELD"
++      fi
+       ;;
+     Grep)
+       GREP_PATH_FIELD="$(printf '%s' "$RAW" | field_value path)"
+@@ -1704,7 +1822,7 @@ if [ "$MODE" = "pretooluse" ]; then
+       # outside all of them, deny as before.
+       ENV_DUMP_SCOPE_H="$(strip_quoted_heredoc_bodies "$CMD_SCOPE")"
+       if has_env_dump "$ENV_DUMP_SCOPE_H"; then
+-        ENV_DUMP_SCOPE_E="$(strip_search_pattern_arguments "$ENV_DUMP_SCOPE_H")"
++        ENV_DUMP_SCOPE_E="$(strip_env_passalong "$(strip_search_pattern_arguments "$ENV_DUMP_SCOPE_H")")"
+         has_env_dump "$ENV_DUMP_SCOPE_E" && deny "command dumps the process environment" "env_dump"
+       fi
+       has_secret_echo "$CMD_SCOPE" && deny "echo/printf references a secret-shaped env var" "secret_echo"
+@@ -1742,13 +1860,13 @@ if [ "$MODE" = "pretooluse" ]; then
+       # diagnostic that has_source_sourcing(comment-stripped, no heredoc
+       # strip) already returns false for the affected commands — this was a
+       # variable-reuse bug, not an intentional narrowing.
+-      if path_pattern_hit "$(strip_shell_comments "$CMD_SCOPE")"; then
++      if path_pattern_hit "$(strip_key_property_access "$(strip_shell_comments "$CMD_SCOPE")")"; then
+         has_source_sourcing "$CMD_SCOPE" && deny "command sources a secret file" "secret_sourcing"
+       fi
+       # Lane 60 ruling r1, exclusion H: also blanks quoted-heredoc bodies
+       # before this gate — same reasoning as the comment-strip above, a
+       # quoted heredoc body is literal content the shell expands nothing in.
+-      SECRET_PATH_SCOPE_H="$(strip_quoted_heredoc_bodies "$(strip_shell_comments "$CMD_SCOPE")")"
++      SECRET_PATH_SCOPE_H="$(strip_quoted_heredoc_bodies "$(strip_key_property_access "$(strip_shell_comments "$CMD_SCOPE")")")"
+       if path_pattern_hit "$SECRET_PATH_SCOPE_H"; then
+         if ! has_allow_carveout "$CMD_SCOPE"; then
+           # Exclusion Q: a secret path that appears ONLY as a search/
