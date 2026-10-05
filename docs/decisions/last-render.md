@@ -50,10 +50,20 @@
 	- Multi-build (missing): One implementation and an alias for parallel builds
 	<empty-block/>
 # Waiting on you now {toggle="true"}
-	Nothing right now.
+	<details>
+	<summary>**Build your seven tools in their simplest form and remove what is not on your list**</summary>
+		Now: your 10/5 words name seven tools; the plan page under Agent Skills has one toggle per tool \| To finish: you tick, seven short bets start in parallel \| Est: the first three land within a week
+		Evidence: the plan page "The seven tools, simplest form" takes your words of 10/5 as the component list: agents talk to each other, multi-build, continual revision toward removing, regular rethinking for the simplest path, communication with you through Notion, memories stored, triaged and read, cleanup as we go. For each it gives what exists, what it broke, the simplest form, what is removed, the test you can read, and the first build. A last toggle lists the parts built but not on your list, which go unless you keep them; the delete guard is the one safety item among them.
+		- [ ] Go: build the seven in their simplest form, remove everything in the last toggle, bets of two to three days in parallel with a Codex check each (recommended)
+		- [ ] Go, but keep the delete guard
+		- [ ] Go on the seven tools only, no removals yet
+		- [ ] No-go: say in a comment line what is wrong in the plan
+		No default: removing parts from your machines takes your word
+		<empty-block/>
+	</details>
 	## What is going on
 	The plugin now runs the whole loop by itself: a lane goes from spec to main in one to three hours with Sonnet building and Opus reviewing, and today two lanes were led from Codex end to end, which the goal's finish line requires. Your page and the Goals page are rendered from repo files and can no longer drift. The cost still out of line is mine, and tomorrow morning's bearings check it against a 40M budget; the other open failure is stalls, two today of 3.5 and 5.3 hours, which tonight's lanes attack. Knowledge sharing between machines still does nothing and is next.
-	## This session (since your tick at Mon 9:23 AM)
+	## This session (since your tick at Mon 11:54 AM)
 	- Your two objections checked against the research and upheld; the blank-page designer is retracted.
 	- The revised method is on this page in the new pitch format, first under Waiting.
 	- Janitor 0.20.20 install in progress on all four machines, your five classes on.
