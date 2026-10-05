@@ -18,16 +18,16 @@
 	Roles: you decide what has feedback (is this my problem, go or no-go, appetite, did it stop). The lead (Fable) plans and pitches only. The builder pane (Opus) runs a build as one Workflow turn. Sonnet writes code. Codex reviews with the code in hand and argues every pitch.
 	<empty-block/>
 
-# The components we want, seven, each with its test {toggle="true"}
-	These are the components the problem demands, not the parts that were built. Each has a purpose, the test you can read, and where it stands today. Your 9/28 list of thirteen maps onto them in the next toggle.
-	- Your page. One Notion page you read and tick, holding only decisions that are yours. Test: every tick read within the next planning turn, none lost, nothing on it that is not yours to decide. Today: rendered by 56 files behind 21 lanes; it asked you the same question three times this week.
-	- The planning turn. Problem, failure list, two designs, pitch, bet with appetite, Codex objection, your tick. Test: every bet ends at its appetite with families marked stopped or not, and the codebase smaller or flat. Today: running its first turn, bet 1, pitch published, objections pending.
-	- The build. A brief goes to merged in one Workflow turn, builder then reviewer then integrator, and the turn removes what it created. Test: under 20 lead turns per build, zero leftovers at the next planning turn, one real task from one of your projects through it. Today: the loop exists and ran well once on 9/22; it sits inside worktree, janitor and notes machinery that produced 45 rows of mess.
-	- The independent check. Codex, with the code in hand, argues three checks on every pitch (wrong problem, part added without a failure, part removed without a failure) and reviews every build. Test: an unedited objections section on every pitch page and a second provider on every build review. Today: Astra holds the first brief and has not acknowledged since yesterday 1:10 PM.
-	- Memory. History, the knowledge inbox and index, the failure list, read at the start of every planning turn. Test: each inbox note is cited at the next planning turn or triaged out. Today: 27 inbox notes pending, none read in seven days.
-	- The host. One machine runs agents; you launch two panes with one command each; secrets are never in an agent session; one install per release. Test: installs per release, one; no guard false positives because there is nothing for a text guard to catch. Today: four hosts, three text guards, 136 rows between them.
-	- The two numbers. Top-tier tokens per bet and hours from brief to merged, read by hand onto every pitch page. Test: both numbers on every pitch. Today: a census with three scripts and 24 rows of numbers nobody trusted.
-	Not components, but properties the whole must keep: one plugin that Claude and Codex both read, the skills shared through the mirror, code in small files.
+# The components we want: your seven tools {toggle="true"}
+	You named them on 10/5 when you closed bet 1: "I want a set of tools, including tools for agents to communicate with each other, to multi build, to continually revise towards removing, not adding, to rethink the architecture regularly in pursuit of the simplest path to the real goal, to communicate with me effectively (ie Notion), to store, triage, and read memories when appropriately, and to clean up as we go, not leaving piles of garbage everywhere". Each is a tool in its simplest form, revised toward removal. The plan page "The seven tools, simplest form" has one toggle per tool with what exists, what broke, the simplest form, what is removed, the test and the first build.
+	- Agents talk to each other. One sender, one ledger a day, one hook that shows unread notes at the start of a turn. Test: every note lands in the reader's next turn and no false alarm fires.
+	- Multi-build. One loop from brief to merged that owns its worktree from creation to removal and takes its bounds as arguments. Test: a lane leaves zero worktrees and branches behind, lead under 20 turns.
+	- Continual revision toward removing. Three rules in the method file: every bet names a removal, every addition names its failure and what it replaces, every pitch shows two falling numbers. Test: tracked files and hook lines fall across bets.
+	- Rethink the architecture regularly. A planning turn at every bet close: one recommendation, the simplest alternative considered, Codex objections unedited, your tick. Test: no bet runs past its appetite.
+	- Communicate with you through Notion. The page published from repo files, your ticks read from the page each turn, the item file deleted when the answer is recorded. Test: you never answer the same question twice.
+	- Store, triage and read memories. One synced knowledge folder, a daily Opus triage, and a rule that every planning turn and brief cites what applies. Test: a triaged lesson is cited each week and the inbox stays under ten.
+	- Clean up as we go. Whoever creates removes; the loop closes its worktree; tests use the system temp; the janitor shrinks to a daily sweep of what still leaks. Test: zero stray worktrees and fewer than ten untracked files at every planning turn.
+	Not components, but properties the whole must keep: one plugin that Claude and Codex both read, the skills shared through the mirror, secrets used and never seen, nothing applied to a machine without your word.
 	<empty-block/>
 
 # Your thirteen components of 9/28, and where each went {toggle="true"}
@@ -54,7 +54,8 @@
 
 # Current pages {toggle="true"}
 	- Skills decisions page: the one place you tick. Regenerated on every publish.
-	- Pitch: shrink the harness to its core (bet 1): the open pitch, objections pending.
+	- The seven tools, simplest form: the bet 3 plan, one toggle per tool you named on 10/5. Read it before you tick.
+	- Pitch: shrink the harness to its core (bet 1): closed on your no-go of 10/5, kept for the record.
 	<empty-block/>
 
 # Prior pages, kept for the record {toggle="true"}
