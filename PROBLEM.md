@@ -16,6 +16,8 @@ This harness is the latest instance. It was built to prevent the pattern and rep
 
 The end state: "a final orchestration harness that creates amazing outputs in a perfect blend of human intelligence and machine intelligence, with human input guiding at exactly the right moments and the code and architecture staying super simple, clean, and cleaned up from as-we-go messes of patches, worktrees, file detritus everywhere." (10/1)
 
+What Ben wants, in his words on 10/5, ticking no-go on a proposal to pause the harness and do a project task instead: "you have to trust me that i've been extremely frustrated with the dev process and exactly how, and that I want a set of tools, including tools for agents to communicate with each other, to multi build, to continually revise towards removing, not adding, to rethink the architecture regularly in pursuit of the simplest path to the real goal, to communicate with me effectively (ie Notion), to store, triage, and read memories when appropriately, and to clean up as we go, not leaving piles of garbage everywhere". He is the solo developer and does not track issues in GitHub; a backlog read is not a signal of what he wants.
+
 ## The lead's reading of the mechanism, to be corrected
 
 - When Ben defers a decision, nobody holds the problem. The agent holds the plan, and the plan is its context, so it cannot throw the plan away.
