@@ -1,0 +1,97 @@
+{
+  "read_date": "2026-10-05 America/New_York",
+  "main_revision": "19f32adab2b3ca79f6ac7e23b55cdc70ba24f499",
+  "note": "Files read from main after de novo plan commit 68f6c527. Tracked critical files matched this revision. Untracked source reports have local byte hashes, not published revision claims.",
+  "files": [
+    {
+      "path": "PROBLEM.md",
+      "sha256": "768a6b0fece80ef67b41d7d1d9b2eda3dc7eb569cd5a42ef4e3909f28af39477",
+      "tracked": true
+    },
+    {
+      "path": "docs/misfits.md",
+      "sha256": "ed569ff16423d0327a5fcfff4eece20c3217bcef6235e04fb8a501b88fb2d22b",
+      "tracked": true
+    },
+    {
+      "path": "docs/notion/lead-view-architecture-and-plan.md",
+      "sha256": "46e8dbe20c7eea78424a46b323eb3ee801cb41e5c9b83aed423ae82b80444457",
+      "tracked": true
+    },
+    {
+      "path": "docs/work/evidence/2026-10-02-method-revision.md",
+      "sha256": "b62be6b11d7f813187bf5522b834141a7d7277d9d9aa71a3a8fdaa5ffd65579e",
+      "tracked": true
+    },
+    {
+      "path": "docs/work/evidence/2026-10-02-method-ruling.md",
+      "sha256": "f941233f2007191ec4e13e03e98b117833a1c34299008287eae46ea07b0c5520",
+      "tracked": true
+    },
+    {
+      "path": "docs/work/evidence/2026-10-02-method-synthesis.md",
+      "sha256": "a0b605ec8dca160fc81dbc7d1fff72961bebfb39d703b1fc1fcdbc7113335535",
+      "tracked": false
+    },
+    {
+      "path": "docs/work/evidence/2026-10-02-research-agent-era.md",
+      "sha256": "b4f1573f2d5d5ae589ade923ab1bd7c205df411bfb94769d8f63fcd6e0abd272",
+      "tracked": false
+    },
+    {
+      "path": "docs/work/evidence/2026-10-02-research-classics.md",
+      "sha256": "e5fc0218f26b43f19fc766c480f05926d18dd6a476b1a1506a1f8e45af8f526b",
+      "tracked": false
+    },
+    {
+      "path": "docs/work/evidence/2026-10-02-research-measures.md",
+      "sha256": "fb970a573bbbc934ab617f24f0b6bdcd94413f485d691bab9f6303b6692a1d46",
+      "tracked": false
+    },
+    {
+      "path": "docs/work/evidence/2026-10-02-research-practitioners.md",
+      "sha256": "dd09eb7d03bcbf7ee238a4c47aa3a88b6653145508e86d66cac15b506305c4d8",
+      "tracked": false
+    },
+    {
+      "path": "docs/work/evidence/2026-10-02-research-problem-discovery.md",
+      "sha256": "941242d23359b7e7b919e490ad5d53027e890a409240fb4d17f0dbb131e6357b",
+      "tracked": false
+    },
+    {
+      "path": "docs/work/evidence/2026-10-02-research-process.md",
+      "sha256": "3251780630d4f33bd7464c7c20d06b121dfc9118ad1e4f2ee9ba4badd89522be",
+      "tracked": false
+    },
+    {
+      "path": "docs/work/evidence/2026-10-02-research-systems.md",
+      "sha256": "4a929597ecedd96d258db6fedc62ddd93acc0892e3d5763499b0658272f666bd",
+      "tracked": false
+    },
+    {
+      "path": "docs/work/evidence/2026-10-02-research2-alternatives.md",
+      "sha256": "fe6bc8832fbdbf5289ba2945a4459459a2d41a512345b3a98bfdc011272f5f80",
+      "tracked": false
+    },
+    {
+      "path": "docs/work/evidence/2026-10-02-research2-owner-decision.md",
+      "sha256": "b8ce877d8882e318abbf0234cdfbb97eec8c92e06e7458862e074617c95df946",
+      "tracked": false
+    },
+    {
+      "path": "docs/work/evidence/2026-10-02-research2-who-redesigns.md",
+      "sha256": "7e850dcd5297a92295ac86e04948b310dad6b08e8fc981b2a24bd4212951509b",
+      "tracked": false
+    },
+    {
+      "path": "docs/work/evidence/2026-10-04-design-continue.md",
+      "sha256": "6247558aa96fb010b1177572991f1dbe4177d227d84bd98d7a8ba930d2a9ab40",
+      "tracked": true
+    },
+    {
+      "path": "docs/work/evidence/2026-10-04-design-simplest-core.md",
+      "sha256": "366a12b07ef3e69681dcbf09c3ee69c3285d27c711ab0cc086eef9ef68b02f89",
+      "tracked": true
+    }
+  ]
+}
