@@ -43,3 +43,7 @@ It ends nothing by itself; each lane ends rows when it lands. The record of the 
 
 - The design has no answer for "the project grows" beyond the method. Every other family's answer is a lane that adds code to the part that produced the rows.
 - The honest case for this design is sunk cost and known behavior: the parts work most of the time, Ben knows the page, and the panes are set up. Those are real, and they are not misfits.
+
+## Corrections after the Codex review, 10/5
+- "No new mechanism" was not true of the six lanes as written (unattended cleanup, owner switches, auto-restart, stall detection are mechanisms). The cost estimate used two unfavorable lanes (M183) as the per-lane cost, which is not an estimate from comparable work.
+- The review names a third option this design and the other both missed, now the recommendation: freeze optional harness development, run one wanted task through the existing tools, change only the boundary that obstructs it.
