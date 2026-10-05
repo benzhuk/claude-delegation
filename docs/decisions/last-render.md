@@ -50,26 +50,10 @@
 	- Multi-build (missing): One implementation and an alias for parallel builds
 	<empty-block/>
 # Waiting on you now {toggle="true"}
-	<details>
-	<summary>**Adopt the revised method**</summary>
-		Now: revised after your two objections, waiting on your word \| To finish: you decide go or no-go and appetite, the first bet runs \| Est: two working days if you go
-		Revised 10/2 after your two objections. Both were right and the research agrees with you: no engineering source has an outsider write the new design, and no owner-facing practice asks the owner to choose between architectures. Links: [revision](https://github.com/benzhuk/claude-delegation/blob/main/docs/work/evidence/2026-10-02-method-revision.md); deeper reports [alternatives](https://github.com/benzhuk/claude-delegation/blob/main/docs/work/evidence/2026-10-02-research2-alternatives.md), [owner decision](https://github.com/benzhuk/claude-delegation/blob/main/docs/work/evidence/2026-10-02-research2-owner-decision.md), [who redesigns](https://github.com/benzhuk/claude-delegation/blob/main/docs/work/evidence/2026-10-02-research2-who-redesigns.md).
-		Problem, in your words: Every complex system built with agents became a pile of patches that never solved the problem. You deferred decisions to Fable, asked for orchestration, and made only the local decisions you were asked. You want to rethink at every planning turn and throw out the architecture for a simpler one without the class of problem, using the learnings from the complexity. Nobody held the problem when you deferred.
-		Recommendation: Adopt the revised method and run the first bet, appetite two working days, output one pitch page for the harness and no code. You own a one-page `PROBLEM.md` and the wording of a list of failures you have seen. The lead, who knows the system and its failure history, writes two designs every planning turn, a continue design and a simplest-core design, and recommends one with trade-offs. A Codex reviewer who has read the code argues against it on three checks: wrong problem, added parts no failure demanded, removed parts with no failure named. You read one page with toggles like this one and decide go, no-go and appetite. You never pick a design. A bet stops at its appetite. You judge it on which listed failures stopped.
-		Path A, the revised method (recommended): Ends the two classes behind the patch pile: decisions made inside the plan, and no one holding the problem. Costs: four markdown files, one planning turn per bet, a Codex review per turn, nothing built as code. Removes: the goal card as driver, the four-measure rule, bearings as a separate role, the pickup, the census as a decision input. Risks: the lead's own rethink may over-reach (Brooks's second system) and the reviewer is the only brake; a different-model reviewer is untested. Will not do: automate the planning turn.
-		Path B, keep the current plan: Card v5, lanes, census, bearings. Ends nothing that caused the pile; twelve lanes on 10/1 moved measures and removed no part. Costs nothing new. Risk: the pattern you described continues.
-		Path C, lead decides alone, you judge outcomes only: Same as A but no pitch page; you see only the finished bet and its failure list. Cheapest for you. Risk: the one decision the sources all give the owner, appetite and go or no-go, is gone, and the lead's turns again want to end in a merge.
-		Reviewer's objections: None yet, this item was written by the lead alone. The first bet's page will carry Codex's objections unedited.
-		- [ ] Go, Path A, appetite two working days (recommended)
-		- [ ] Go, Path A, different appetite, write it in a comment
-		- [ ] Path C
-		- [ ] No-go, comment below
-		No default.
-		<empty-block/>
-	</details>
+	Nothing right now.
 	## What is going on
 	The plugin now runs the whole loop by itself: a lane goes from spec to main in one to three hours with Sonnet building and Opus reviewing, and today two lanes were led from Codex end to end, which the goal's finish line requires. Your page and the Goals page are rendered from repo files and can no longer drift. The cost still out of line is mine, and tomorrow morning's bearings check it against a 40M budget; the other open failure is stalls, two today of 3.5 and 5.3 hours, which tonight's lanes attack. Knowledge sharing between machines still does nothing and is next.
-	## This session (since your tick at Sun 12:58 PM)
+	## This session (since your tick at Sun 1:01 PM)
 	- Your two objections checked against the research and upheld; the blank-page designer is retracted.
 	- The revised method is on this page in the new pitch format, first under Waiting.
 	- Janitor 0.20.20 install in progress on all four machines, your five classes on.
@@ -78,9 +62,10 @@
 	<callout icon="✅">
 		To comment, start a line with `**` anywhere on this page, then tick Done to submit; the answer appears here and the exchange is kept in that day's history file.
 	</callout>
-	- [ ] Done (last cleared: Oct 4, 2026, 1:08 PM America/New_York)
+	- [ ] Done (last cleared: Oct 5, 2026, 9:27 AM America/New_York)
 	<empty-block/>
 # History {toggle="true"}
+	- [Oct 5](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-10-05.md) — lane 70 merged and live on ben-desktop by Ben's word.
 	- [Oct 4](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-10-04.md) — Ben lifted the secret guard for one supervised run of lane 70.
 	- [Oct 2](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-10-02.md) — lane 74 merged to main, and lane 62 went NEEDS BEN on the secret guard.
 	- [Oct 1](https://github.com/benzhuk/claude-delegation/blob/main/docs/decisions/history/2026-10-01.md) — Ben ended the pause; the lead is now the pane skills-f, and lanes 62, 64, 65 and 66 were dispatched.
