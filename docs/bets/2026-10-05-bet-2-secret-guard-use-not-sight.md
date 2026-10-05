@@ -28,3 +28,6 @@ Never push to dotfiles main: the sync task deploys origin/main to live hosts unr
 
 ## Outcome
 Open. The guard is off on ben-desktop from 10:24 AM 10/5 by Ben's word; settings backup in the lead's session scratchpad.
+
+## Addendum 10:30 AM, Ben's question: can an agent still list secrets to see whether one exists?
+Yes, and the guard must allow it. Names are not secrets. Allowed without a prompt: `vercel env ls` for any project (the builder verifies it prints names, environments and dates with values shown as encrypted or hidden, never plaintext; if a project has unencrypted plain values that would print, the tool wraps the listing and prints names only), and `secret-tool check` or a new `secret-tool ls` that lists the variable names and lengths in the local env file with no values. The sight line is values, never names.
